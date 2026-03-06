@@ -388,7 +388,7 @@ def smplify_optimization(
                 print(log_str)
     smpl_params['smpl_joints'] = smpl_joints
     smpl_params['kp3d'] = kp3d
-    return smpl_params
+    return smpl_params, losses
 
 def post_process_transl_with_stationary_detection(transl_tensor, 
                                                    velocity_threshold=0.3, 
@@ -750,7 +750,7 @@ if __name__ == "__main__":
     ]
 
     with torch.amp.autocast('cuda', enabled=False): 
-        smpl_params_optim = smplify_optimization(
+        smpl_params_optim, optim_losses = smplify_optimization(
             smpl_model=body_model,
             smpl_params=smpl_params_init,
             kp3d=kp3d,
@@ -818,6 +818,12 @@ if __name__ == "__main__":
     smpl_params_optim['R2'] = R2
     smpl_params_optim['T1'] = T1
     smpl_params_optim['T2'] = T2
+    if len(optim_losses) > 0:
+        smpl_params_optim['optim_total_loss'] = np.float32(optim_losses[-1])
+        print(f"[optim_motion] Final total loss: {optim_losses[-1]:.6f}")
+    else:
+        smpl_params_optim['optim_total_loss'] = np.float32(np.nan)
+        print("[optim_motion] Warning: No optimization loss recorded.")
     smpl_params_optim.pop('vertices', None)
 
     for k in smpl_params_optim:

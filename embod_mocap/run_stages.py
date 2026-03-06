@@ -122,12 +122,13 @@ def pick_profile_params(step_params, in_door):
     """Select in_door/out_door param block for a step."""
     return step_params.in_door if in_door else step_params.out_door
 
-def check_steps_completion(xlsx_path, config, steps, data_root=None):
+def check_steps_completion(xlsx_path, config, steps, data_root=None, force_all=False):
     """Check completion status of specified steps based on anchor files"""
     if not os.path.exists(xlsx_path):
         print(f"Error: {xlsx_path} not found")
         return
     
+    # 读取 Excel 文件，支持多个 sheet
     xl = pd.ExcelFile(xlsx_path)
     if len(xl.sheet_names) > 1:
         print(f"Reading {len(xl.sheet_names)} sheets from {xlsx_path}")
@@ -143,16 +144,23 @@ def check_steps_completion(xlsx_path, config, steps, data_root=None):
     config_step = {i + 1: step_cfg for i, step_cfg in enumerate(config.steps.values())}
     anchor_files = {i: cfg.anchors for i, cfg in config_step.items()}
     
+    # Get unique scene folders and combine with data_root
     scene_folders = set()
-    scene_folder_map = {}
+    xlsx_failed_map = {}  # scene_folder_rel -> set(seq_name)
+    scene_folder_map = {}  # 映射：完整路径 -> 相对路径
     for idx, row in df.iterrows():
         scene_folder_rel = str(row['scene_folder'])
+        seq_name = str(row.get('seq_name', ''))
         if data_root:
             scene_folder = os.path.join(data_root, scene_folder_rel)
         else:
             scene_folder = scene_folder_rel
         scene_folders.add(scene_folder)
         scene_folder_map[scene_folder] = scene_folder_rel
+        if seq_name and get_bool_from_excel(row, "FAILED"):
+            if scene_folder_rel not in xlsx_failed_map:
+                xlsx_failed_map[scene_folder_rel] = set()
+            xlsx_failed_map[scene_folder_rel].add(seq_name)
     
     for step in steps:
         results[step] = {}
@@ -185,9 +193,9 @@ def check_steps_completion(xlsx_path, config, steps, data_root=None):
                 else:
                     scene_folder = scene_folder_rel
                 seq_path = os.path.join(scene_folder, seq_name)
-                seq_key = f"{scene_folder_rel}/{seq_name}"
+                seq_key = f"{scene_folder_rel}/{seq_name}"  # 使用相对路径作为 key
                 
-                if get_bool_from_excel(row, "FAILED"):
+                if get_bool_from_excel(row, "FAILED") and not force_all:
                     results[step][seq_key] = "FAILED"
                     continue
                 
@@ -207,7 +215,7 @@ def check_steps_completion(xlsx_path, config, steps, data_root=None):
                 seq_path = os.path.join(scene_folder, seq_name)
                 seq_key = f"{scene_folder_rel}/{seq_name}"
                 
-                if get_bool_from_excel(row, "FAILED"):
+                if get_bool_from_excel(row, "FAILED") and not force_all:
                     results[step][seq_key] = "FAILED"
                     continue
                 
@@ -227,7 +235,7 @@ def check_steps_completion(xlsx_path, config, steps, data_root=None):
                 seq_path = os.path.join(scene_folder, seq_name)
                 seq_key = f"{scene_folder_rel}/{seq_name}"
                 
-                if get_bool_from_excel(row, "FAILED"):
+                if get_bool_from_excel(row, "FAILED") and not force_all:
                     results[step][seq_key] = "FAILED"
                     continue
                 
@@ -249,7 +257,7 @@ def check_steps_completion(xlsx_path, config, steps, data_root=None):
                 seq_path = os.path.join(scene_folder, seq_name)
                 seq_key = f"{scene_folder_rel}/{seq_name}"
                 
-                if get_bool_from_excel(row, "FAILED"):
+                if get_bool_from_excel(row, "FAILED") and not force_all:
                     results[step][seq_key] = "FAILED"
                     continue
                 
@@ -269,7 +277,7 @@ def check_steps_completion(xlsx_path, config, steps, data_root=None):
                 seq_path = os.path.join(scene_folder, seq_name)
                 seq_key = f"{scene_folder_rel}/{seq_name}"
                 
-                if get_bool_from_excel(row, "FAILED"):
+                if get_bool_from_excel(row, "FAILED") and not force_all:
                     results[step][seq_key] = "FAILED"
                     continue
                 
@@ -289,7 +297,7 @@ def check_steps_completion(xlsx_path, config, steps, data_root=None):
                 seq_path = os.path.join(scene_folder, seq_name)
                 seq_key = f"{scene_folder_rel}/{seq_name}"
                 
-                if get_bool_from_excel(row, "FAILED"):
+                if get_bool_from_excel(row, "FAILED") and not force_all:
                     results[step][seq_key] = "FAILED"
                     continue
                 
@@ -308,13 +316,27 @@ def check_steps_completion(xlsx_path, config, steps, data_root=None):
                 seq_path = os.path.join(scene_folder, seq_name)
                 seq_key = f"{scene_folder_rel}/{seq_name}"
                 
-                if get_bool_from_excel(row, "FAILED"):
+                if get_bool_from_excel(row, "FAILED") and not force_all:
                     results[step][seq_key] = "FAILED"
                     continue
-                
-                v1_exists = os.path.exists(os.path.join(seq_path, anchor_files[10][0]))
-                v2_exists = os.path.exists(os.path.join(seq_path, anchor_files[10][1]))
-                results[step][seq_key] = v1_exists and v2_exists
+
+                def _non_empty_dir(path):
+                    if not os.path.isdir(path):
+                        return False
+                    return any(not f.startswith('.') for f in os.listdir(path))
+
+                # Depth + mask outputs are both required for step 11 (vggt_track).
+                # Keep compatibility with older configs that only listed depth anchors.
+                depth_v1 = os.path.join(seq_path, "v1/depths_keyframe_refined")
+                depth_v2 = os.path.join(seq_path, "v2/depths_keyframe_refined")
+                mask_v1 = os.path.join(seq_path, "v1/masks_keyframe")
+                mask_v2 = os.path.join(seq_path, "v2/masks_keyframe")
+                results[step][seq_key] = (
+                    _non_empty_dir(depth_v1)
+                    and _non_empty_dir(depth_v2)
+                    and _non_empty_dir(mask_v1)
+                    and _non_empty_dir(mask_v2)
+                )
 
         elif step == 11:
             # Step 11: vggt_track - sequence level
@@ -328,7 +350,7 @@ def check_steps_completion(xlsx_path, config, steps, data_root=None):
                 seq_path = os.path.join(scene_folder, seq_name)
                 seq_key = f"{scene_folder_rel}/{seq_name}"
                 
-                if get_bool_from_excel(row, "FAILED"):
+                if get_bool_from_excel(row, "FAILED") and not force_all:
                     results[step][seq_key] = "FAILED"
                     continue
                 
@@ -347,7 +369,7 @@ def check_steps_completion(xlsx_path, config, steps, data_root=None):
                 seq_path = os.path.join(scene_folder, seq_name)
                 seq_key = f"{scene_folder_rel}/{seq_name}"
                 
-                if get_bool_from_excel(row, "FAILED"):
+                if get_bool_from_excel(row, "FAILED") and not force_all:
                     results[step][seq_key] = "FAILED"
                     continue
                 
@@ -367,7 +389,7 @@ def check_steps_completion(xlsx_path, config, steps, data_root=None):
                 seq_path = os.path.join(scene_folder, seq_name)
                 seq_key = f"{scene_folder_rel}/{seq_name}"
                 
-                if get_bool_from_excel(row, "FAILED"):
+                if get_bool_from_excel(row, "FAILED") and not force_all:
                     results[step][seq_key] = "FAILED"
                     continue
                 
@@ -387,7 +409,7 @@ def check_steps_completion(xlsx_path, config, steps, data_root=None):
                 seq_path = os.path.join(scene_folder, seq_name)
                 seq_key = f"{scene_folder_rel}/{seq_name}"
                 
-                if get_bool_from_excel(row, "FAILED"):
+                if get_bool_from_excel(row, "FAILED") and not force_all:
                     results[step][seq_key] = "FAILED"
                     continue
                 
@@ -407,7 +429,7 @@ def check_steps_completion(xlsx_path, config, steps, data_root=None):
                 seq_path = os.path.join(scene_folder, seq_name)
                 seq_key = f"{scene_folder_rel}/{seq_name}"
                 
-                if get_bool_from_excel(row, "FAILED"):
+                if get_bool_from_excel(row, "FAILED") and not force_all:
                     results[step][seq_key] = "FAILED"
                     continue
                 
@@ -426,7 +448,7 @@ def check_steps_completion(xlsx_path, config, steps, data_root=None):
                 seq_path = os.path.join(scene_folder, seq_name)
                 seq_key = f"{scene_folder_rel}/{seq_name}"
                 
-                if get_bool_from_excel(row, "FAILED"):
+                if get_bool_from_excel(row, "FAILED") and not force_all:
                     results[step][seq_key] = "FAILED"
                     continue
                 
@@ -457,7 +479,16 @@ def check_steps_completion(xlsx_path, config, steps, data_root=None):
             
             scene_results[scene_folder][seq_name][step] = status
     
+    # Print results by scene
     print("\n=== Step Completion Check ===")
+    total_scene_count = len(scene_results)
+    total_seq_count = 0
+    total_seq_success = 0
+    total_seq_failed = 0
+    total_seq_incomplete = 0
+    total_xlsx_failed = 0
+    total_xlsx_failed_success = 0
+
     for scene_folder in sorted(scene_results.keys()):
         # Check scene-level steps
         scene_unfinished = []
@@ -469,6 +500,7 @@ def check_steps_completion(xlsx_path, config, steps, data_root=None):
                     if not scene_results[scene_folder][None][step]:
                         scene_unfinished.append(step)
         
+        # Print scene status inline
         if scene_steps_to_check:
             if scene_unfinished:
                 print(f"\nScene: {scene_folder} (unfinished: {','.join(map(str, scene_unfinished))})")
@@ -483,6 +515,7 @@ def check_steps_completion(xlsx_path, config, steps, data_root=None):
             print("  No sequences found")
             continue
             
+        # Sort sequences numerically (seq0, seq1, seq2, ..., seq10, seq11)
         def seq_sort_key(seq_name):
             if seq_name.startswith('seq'):
                 try:
@@ -491,13 +524,19 @@ def check_steps_completion(xlsx_path, config, steps, data_root=None):
                     return float('inf')
             return seq_name
         
+        # Check all sequences first to determine overall status
         incomplete_seqs = []
         failed_seqs = []
+        completed_xlsx_failed = []
         
         for seq_name in sorted(seq_names, key=seq_sort_key):
+            total_seq_count += 1
             seq_unfinished = []
             seq_failed = False
             seq_details = {}  # Store detailed issues for special steps
+            xlsx_failed = seq_name in xlsx_failed_map.get(scene_folder, set())
+            if xlsx_failed:
+                total_xlsx_failed += 1
             
             for step in sorted([s for s in steps if s >= 4]):
                 if step in scene_results[scene_folder][seq_name]:
@@ -516,29 +555,56 @@ def check_steps_completion(xlsx_path, config, steps, data_root=None):
                         seq_unfinished.append(step)
             
             if seq_failed:
-                failed_seqs.append(seq_name)
+                failed_seqs.append((seq_name, xlsx_failed))
+                total_seq_failed += 1
             elif seq_unfinished:
-                incomplete_seqs.append((seq_name, seq_unfinished, seq_details))
+                incomplete_seqs.append((seq_name, seq_unfinished, seq_details, xlsx_failed))
+                total_seq_incomplete += 1
+            elif xlsx_failed:
+                completed_xlsx_failed.append(seq_name)
+                total_seq_success += 1
+                total_xlsx_failed_success += 1
+            else:
+                total_seq_success += 1
         
+        # Print results based on overall status
         if not failed_seqs and not incomplete_seqs:
             # All sequences completed
             seq_steps = [s for s in steps if s >= 4]
             if seq_steps:
                 print("  All sequences completed")
+                if completed_xlsx_failed:
+                    checked_list = ",".join(sorted(completed_xlsx_failed, key=seq_sort_key))
+                    print(f"  XLSX FAILED (checked): {checked_list}")
         else:
-            for seq_name in failed_seqs:
-                print(f"  {seq_name}: FAILED (marked in xlsx)")
-            for seq_name, unfinished_steps, details in incomplete_seqs:
+            for seq_name in sorted(completed_xlsx_failed, key=seq_sort_key):
+                print(f"  {seq_name}: completed (xlsx FAILED)")
+            # Print only failed and incomplete sequences
+            for seq_name, xlsx_failed in failed_seqs:
+                if xlsx_failed:
+                    print(f"  {seq_name}: FAILED (xlsx marked)")
+                else:
+                    print(f"  {seq_name}: FAILED")
+            for seq_name, unfinished_steps, details, xlsx_failed in incomplete_seqs:
+                failed_tag = " (xlsx FAILED)" if xlsx_failed else ""
                 if 7 in details and details[7]:
                     # Special handling for slice_views (step 7) with detailed issues
-                    print(f"  {seq_name} unfinished steps: {','.join(map(str, unfinished_steps))}")
+                    print(f"  {seq_name} unfinished steps: {','.join(map(str, unfinished_steps))}{failed_tag}")
                     for issue in details[7]:
                         print(f"    - {issue}")
                 else:
-                    print(f"  {seq_name} unfinished steps: {','.join(map(str, unfinished_steps))}")
+                    print(f"  {seq_name} unfinished steps: {','.join(map(str, unfinished_steps))}{failed_tag}")
+
+    print("\n=== Check Summary ===")
+    print(f"Scenes total: {total_scene_count}")
+    print(f"Seq total: {total_seq_count}")
+    print(f"Seq success: {total_seq_success}")
+    print(f"Seq failed: {total_seq_failed}")
+    print(f"Seq unfinished: {total_seq_incomplete}")
+    print(f"Seq xlsx FAILED marked: {total_xlsx_failed}")
+    print(f"Seq xlsx FAILED but success: {total_xlsx_failed_success}")
     
     return results
-
 def auto_generate_xlsx(data_root, out_xlsx='seq_info.xlsx'):
     # generate seq_info.xlsx, which contains scene_folder, seq_name, in_door, v1_start, v2_start
     
@@ -1245,7 +1311,7 @@ if __name__ == "__main__":
     config = EasyDict(config)
     
     if args.check:
-        check_steps_completion(args.xlsx, config, steps, data_root=args.data_root)
+        check_steps_completion(args.xlsx, config, steps, data_root=args.data_root, force_all=args.force_all)
     elif run_vis:
         run_visualization(args.xlsx, args.data_root, config, args.device, force_all=args.force_all)
     else:
