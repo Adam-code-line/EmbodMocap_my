@@ -623,7 +623,7 @@ def auto_generate_xlsx(data_root, out_xlsx='seq_info.xlsx'):
             seq_path = os.path.join(scene_path, seq)
             if not os.path.isdir(seq_path):
                 continue
-            rows.append({'scene_folder': scene, 'seq_name': seq, 'in_door': True, 'v1_start': '-', 'v2_start': '-', 'character': '-', 'vertical': True, 'skills': (), 'keyframes': (), 'FAILED': '',	'note': '', 'skills': (), 'contacts': (), 'optim_scale': False})
+            rows.append({'scene_folder': scene, 'seq_name': seq, 'in_door': True, 'v1_start': '-', 'v2_start': '-', 'character': '-', 'skills': (), 'keyframes': (), 'FAILED': '',	'note': '', 'skills': (), 'contacts': (), 'optim_scale': False})
             # skills: list of list, [[start_frame, end_frame, skill_name], ...], e.g. [[0, 100, 'walk'], [100, 200, 'sit'], ...]
             # keyframes: list of list, [keyframe1, keyframe2]
     df = pd.DataFrame(rows)
@@ -901,7 +901,7 @@ def full_steps(xlsx_path, data_root, config, steps):
             continue
 
         seq_path = os.path.join(scene_folder, seq_name)
-        vertical = get_bool_from_excel(row, 'vertical', True)
+        vertical = True
         optim_scale = get_bool_from_excel(row, 'optim_scale', False)
 
         try:
@@ -1266,6 +1266,11 @@ if __name__ == "__main__":
     parser.add_argument('--check', action='store_true', help='check completion status of specified steps')
     parser.add_argument('--clean_dry_run', action='store_true', help='preview clean actions without deleting files')
     parser.add_argument('--force_all', action='store_true', help='Force process all sequences including those marked as FAILED')
+    # Help short-circuit: always show help and exit, regardless of other args.
+    if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
+        parser.print_help()
+        sys.exit(0)
+
     args = parser.parse_args()
     
     if args.clean:
