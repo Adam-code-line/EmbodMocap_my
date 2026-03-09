@@ -1,77 +1,179 @@
-# EmbodMocap 主流程（入口脚本可重命名）
+# EmbodMocap 主流程
 
 **语言切换 / Language:** [中文](embod_mocap_zh.md) | [English](embod_mocap.md)
 
-本项目当前统一入口为：`embod_mocap/run_stages.py`。  
-如在开源仓库中重命名入口脚本，请同步替换本文档命令中的脚本名。
+本项目统一入口为：`embod_mocap/run_stages.py`。
 
 ## 快速开始
+
+### 使用示例数据演示
+
+我们提供了演示数据集帮助您快速上手。从我们的数据发布中下载后尝试：
+
+```bash
+cd embod_mocap
+
+# 使用提供的示例数据运行演示
+python run_stages.py ../datasets/release_demo.xlsx --data_root ../datasets/dataset_demo --config config.yaml --steps 1-15 --mode overwrite
+```
+
+演示数据包含预填充的同步索引（`v1_start`/`v2_start`），因此您可以直接运行完整流程。
+
+### 从头开始
 
 建议在 `embod_mocap/` 目录执行：
 
 ```bash
 cd embod_mocap
 
-# 1) 先自动生成 xlsx（步骤0）
+# 1) 先自动生成 xlsx（步骤0，如果文件已存在会报错）
 python run_stages.py seq_info.xlsx --data_root /path/to/data --steps 0
 
 # 2) 先填写基础字段（in_door / vertical / FAILED 等）
 
-# 3) 先跑场景与前半预处理
+# 3) 先跑 scene 与前半预处理
 python run_stages.py seq_info.xlsx --data_root /path/to/data --config config.yaml --steps 1-5 --mode overwrite
 ```
 
 然后需要人工看双视角画面做同步，回填 xlsx 的 `v1_start` / `v2_start`。
 
 ```bash
-# 可选：预览辅助
-python processor/visualize.py /path/to/scene/seq0 --input --processed --downscale 2 --mode overwrite
+# 4) 对齐索引填写后，再继续主流程
+python run_stages.py seq_info.xlsx --data_root /path/to/data --config config.yaml --steps 6-15 --mode overwrite
 
-# 4) 对齐索引填写后，再继续后续流程
-python run_stages.py seq_info.xlsx --data_root /path/to/data --config config.yaml --steps 6-16 --mode overwrite
+# 5) 可选最终步骤：仅当标注了 `contacts` 时运行接触对齐
+python run_stages.py seq_info.xlsx --data_root /path/to/data --config config.yaml --steps 16 --mode overwrite
 
-# fast 模式对应同样的分段流程
-python run_stages.py seq_info.xlsx --data_root /path/to/data --config config_fast.yaml --steps 1-5 --mode overwrite
-python run_stages.py seq_info.xlsx --data_root /path/to/data --config config_fast.yaml --steps 6-16 --mode overwrite
+# fast 模式将配置文件改为 config_fast.yaml
 ```
+
+### 多 GPU 处理
+
+使用多 GPU 加速处理，使用 `run_stages_mp.py`：
+
+```bash
+cd embod_mocap
+
+# 使用多个 GPU（例如 GPU 0, 1, 2）
+python run_stages_mp.py seq_info.xlsx --data_root /path/to/data --config config.yaml --steps 1-15 --mode overwrite --gpu_ids 0,1,2
+```
+
+`run_stages_mp.py` 支持与 `run_stages.py` 相同的所有参数，另外还有：
+- `--gpu_ids`：指定 GPU ID（例如 `0,1,2`）。当数量 > 1 时自动启用多 GPU 模式
+- `--worker_poll_interval`：工作队列轮询间隔（秒），默认：1.0
+- `--max_retries`：每个任务的最大重试次数，默认：1
+
+多 GPU 版本会自动将 seq 分配到可用的 GPU 上进行并行处理。
 
 ## Standard / Fast 模式
 
-两者都跑 1-16 主流程，核心差异在输出资产完整度：
-- `fast`：更适合只关心 mesh + motion 的具身任务，迭代更快。
-- `standard`：更适合需要完整 RGBD + mask 资产的训练场景。
+两种模式共享相同的步骤定义。`standard` 和 `fast` 的主要区别在于输出完整度：
 
-步骤与配置详细解释见：[English](step_details.md) | [中文](step_details_zh.md)。
+- `fast`：针对 mesh + motion 任务优化，迭代更快。
+- `standard`：保留/生成更完整的 RGBD + mask 资产，用于数据/模型训练。
 
 ## 步骤总览（1-16）
 
-### Stage 1：场景重建（Steps 1-3）
+<details>
+<summary><strong>展开全部 16 个 Step</strong></summary>
 
-- 1 `sai`：场景关键帧与相机初始化
-- 2 `recon_scene`：场景重建（`mesh_raw.ply` 与 `mesh_simplified.ply`）
-- 3 `rebuild_colmap`：场景 COLMAP 数据库
+### Stage 1：scene 重建
 
-### Stage 2：序列预处理（Steps 4-7）
+**Step 1: `sai`**
 
-- 4 `get_frames`：从 raw 数据提帧
-- 5 `smooth_camera`：平滑相机轨迹
-- 6 `slice_views`：切分 v1/v2 视角（依赖已填写 `v1_start`/`v2_start`）
-- 7 `process_smpl`：人体 SMPL 估计
+- 目标：scene 关键帧与相机初始化。
+- 输出：`transforms.json`。
+- 说明：`in_door`/`out_door` 策略影响关键帧间隔。
 
-### Stage 3：人体视角相机标定（Steps 8-12）
+**Step 2: `recon_scene`**
 
-- 8 `colmap_human_cam`：人体视角 COLMAP 相机
-- 9 `generate_keyframes`：生成关键帧
-- 10 `process_depth_mask`：深度与掩码生成/细化
-- 11 `vggt_track`：VGGT 跟踪约束
-- 12 `align_cameras`：相机与尺度对齐
+- 目标：从 RGBD/深度线索重建 scene 网格。
+- 输出：`mesh_raw.ply`、`mesh_simplified.ply`。
+- 说明：体素/深度截断参数权衡质量与速度。
 
-### Stage 4：运动与接触对齐（Steps 13-16）
+**Step 3: `rebuild_colmap`**
 
-- 13 `unproj_human`：人体反投影点云
-- 14 `optim_human_cam`：人体视角相机优化
-- 15 `optim_motion`：世界坐标运动优化（`optim_params.npz`）
-- 16 `align_contact`：接触对齐（需要有效 `contacts`）
+- 目标：重建 scene 的 COLMAP 数据库和模型，用于后续配准。
+- 输出：`colmap/database.db`、稀疏模型文件。
+- 说明：配准质量不稳定时检查 COLMAP 环境。
+
+### Stage 2：seq 预处理
+
+**Step 4: `get_frames`**
+
+- 目标：从原始录制中提取每视角图像。
+- 输出：`raw1/images`、`raw2/images`。
+
+**Step 5: `smooth_camera`**
+
+- 目标：平滑原始捕获的相机轨迹。
+- 输出：平滑后的每视角相机文件。
+
+**Step 6: `slice_views`**
+
+- 目标：使用同步索引切分对齐的 `v1/v2` 片段。
+- 输出：包含切片图像/相机的 `v1/` 和 `v2/` 文件夹。
+- 说明：继续之前必须正确填写 `v1_start`/`v2_start`。
+
+**Step 7: `process_smpl`**
+
+- 目标：估计人体状态（SMPL/姿态相关中间结果）。
+- 输出：视角侧 `smpl_params.npz`（中间文件）。
+
+**Step 8: `colmap_human_cam`**
+
+- 目标：将人体视角相机配准到 scene / 世界坐标系。
+- 输出：`v1/cameras_colmap.npz`、`v2/cameras_colmap.npz`。
+
+### Stage 3：几何与相机优化
+
+**Step 9: `generate_keyframes`**
+
+- 目标：构建优化关键帧集。
+- 输出：关键帧索引/元数据。
+
+**Step 10: `process_depth_mask`**
+
+- 目标：生成/细化深度和人体掩码。
+- 输出：`images/`、`depths_refined/`、`masks/`（策略取决于模式）。
+- 说明：这是 `standard` 与 `fast` 完整度差异的主要部分。
+
+**Step 11: `vggt_track`**
+
+- 目标：为后续优化生成跟踪约束。
+- 输出：跟踪元数据。
+
+**Step 12: `align_cameras`**
+
+- 目标：将 SAI/COLMAP 相机系统对齐到一致的尺度/坐标系。
+- 输出：对齐的相机文件。
+
+**Step 13: `unproj_human`**
+
+- 目标：将人体视角几何反投影到点云。
+- 输出：相机优化使用的点云文件。
+
+**Step 14: `optim_human_cam`**
+
+- 目标：优化人体视角相机轨迹。
+- 输出：优化/对齐的相机参数（中间/最终）。
+
+### Stage 4：运动与接触
+
+**Step 15: `optim_motion`**
+
+- 目标：优化世界坐标系运动参数。
+- 核心输出：`optim_params.npz`。
+- 说明：这是可视化和下游任务所需的关键产物。
+
+**Step 16: `align_contact`**
+
+- 目标：可选的接触感知全局对齐。
+- 要求：XLSX 中有效的 `contacts`。
+- 输出：`optim_params_aligned.npz`、对齐的相机/`kp3d` 产物。
+
+
+</details>
 
 ## XLSX 关键字段
 
@@ -79,12 +181,12 @@ python run_stages.py seq_info.xlsx --data_root /path/to/data --config config_fas
 - `in_door`, `vertical`
 - `v1_start`, `v2_start`
 - `FAILED`
-- `contacts`（仅 step16 用）
+- `contacts`（仅 Step 16 使用）
 - `skills`（导出 `plan.json` 时使用）
 
-### contacts（Step16）
+### `contacts`（Step 16）
 
-只有当 `contacts` 有效时才执行 step16。若为空或 `nan`，该步骤自动跳过。
+只有当 `contacts` 有效时才执行 Step 16。若为空或 `nan`，该步骤自动跳过。
 
 ## 清理（--clean）
 
@@ -99,22 +201,17 @@ python run_stages.py seq_info.xlsx --data_root /path/to/data --clean fast
 ```
 
 当前语义：
+
 - `all`：只保留 raw 安全文件
 - `fast`：保留核心结果 + 轻量可视化产物
 - `standard`：在 `fast` 基础上额外保留 `images/depths_refined/masks`
 
-## 可视化
-
-```bash
-# 按 xlsx 批量可视化
-python run_stages.py seq_info.xlsx --data_root /path/to/data --steps vis --config config.yaml
-
-# 单序列可视化
-python processor/visualize.py /path/to/scene/seq0 --input --optim_cam --downscale 2 --mode overwrite
-```
-
 ## 完成检查
 
+检查 xlsx 中每个 seq 的步骤完成情况：
+
 ```bash
-python run_stages.py seq_info.xlsx --data_root /path/to/data --steps 1-16 --check --config config.yaml
+python run_stages.py seq_info.xlsx --data_root /path/to/data --steps 1-15 --check --config config.yaml
 ```
+
+该命令会扫描所有 seq 并报告每个步骤的完成状态，不会执行任何处理。适用于跟踪多个 scene 的进度。

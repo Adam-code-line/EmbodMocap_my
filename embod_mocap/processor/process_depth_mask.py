@@ -4,8 +4,9 @@ import os
 import cv2
 import numpy as np
 import torch
+from tqdm import tqdm
 from embod_mocap.config_paths import PATHS
-from embod_mocap.processor.base import MDMModel
+from embod_mocap.processor.base import lingbotdepth_refine_batch, MDMModel, load_image_rotate
 from embod_mocap.human.utils.lang_sam_utils import lang_sam_forward
 from embod_mocap.processor.process_frames import process_depth_batch
 from embod_mocap.processor.colmap_human_cam import check_points_in_mask
@@ -43,13 +44,17 @@ def generate_masks(image_list, frame_ids, output_dir, prefix,
         sam_type=lang_sam_sam_type,
         sam_ckpt_path=lang_sam_sam_ckpt_path,
     )
-    for fid, res in zip(selected_ids, results):
+    for img, fid, res in zip(selected_imgs, selected_ids, results):
+        out_path = os.path.join(output_dir, f"{prefix}_{fid:04d}.png")
         if res['masks'] is not None and len(res['masks']) > 0:
             mask = res['masks'][0] * 255
-            cv2.imwrite(
-                os.path.join(output_dir, f"{prefix}_{fid:04d}.png"),
-                mask,
-            )
+            cv2.imwrite(out_path, mask)
+        else:
+            # Keep one mask per requested frame so downstream consumers do not crash
+            # when detector misses a person on some keyframes.
+            w, h = img.size
+            empty_mask = np.zeros((h, w), dtype=np.uint8)
+            cv2.imwrite(out_path, empty_mask)
 
 
 def filter_points2d_with_masks(points2d_path, mask_dir, prefix, output_path):
@@ -100,12 +105,28 @@ if __name__ == "__main__":
         print(f"Warning: keyframes.json not found in {args.folder}, skip")
         exit(0)
 
+    raw1_image_list = sorted([
+        os.path.join(v1_frames_dir, f)
+        for f in os.listdir(v1_frames_dir)
+        if f.startswith("v1_") and f.endswith(".jpg")
+    ])
+    raw2_image_list = sorted([
+        os.path.join(v2_frames_dir, f)
+        for f in os.listdir(v2_frames_dir)
+        if f.startswith("v2_") and f.endswith(".jpg")
+    ])
+    num_v1 = len(raw1_image_list)
+    num_v2 = len(raw2_image_list)
+
+    # 确定要处理的帧
     if args.need_all_depth_mask:
+        # 处理所有帧（不需要读取关键帧列表）
         v1_keyframe_ids = None
         v2_keyframe_ids = None
         print(f"Processing ALL frames for depth refine and mask generation")
         print(f"Total frames: v1={num_v1}, v2={num_v2}")
     else:
+        # 只处理关键帧（需要读取关键帧列表）
         v1_kf_set = set()
         v2_kf_set = set()
         if args.use_vggt:
@@ -127,12 +148,15 @@ if __name__ == "__main__":
         
         print(f"Processing keyframes only: v1={len(v1_keyframe_ids)}, v2={len(v2_keyframe_ids)}")
 
+    # 根据模式设置输出目录
     if args.need_all_depth_mask:
+        # 处理所有帧：输出到 depths_refined/ 和 masks/
         depth_frames_outdir1 = f"{v1_folder}/depths_refined"
         depth_frames_outdir2 = f"{v2_folder}/depths_refined"
         mask_outdir1 = f"{v1_folder}/masks"
         mask_outdir2 = f"{v2_folder}/masks"
     else:
+        # 只处理关键帧：输出到 depths_keyframe_refined/ 和 masks_keyframe/
         depth_frames_outdir1 = f"{v1_folder}/depths_keyframe_refined"
         depth_frames_outdir2 = f"{v2_folder}/depths_keyframe_refined"
         mask_outdir1 = f"{v1_folder}/masks_keyframe"
@@ -144,19 +168,6 @@ if __name__ == "__main__":
     os.makedirs(depth_frames_outdir2, exist_ok=True)
     os.makedirs(mask_outdir1, exist_ok=True)
     os.makedirs(mask_outdir2, exist_ok=True)
-
-    raw1_image_list = sorted([
-        os.path.join(v1_frames_dir, f)
-        for f in os.listdir(v1_frames_dir)
-        if f.startswith("v1_") and f.endswith(".jpg")
-    ])
-    raw2_image_list = sorted([
-        os.path.join(v2_frames_dir, f)
-        for f in os.listdir(v2_frames_dir)
-        if f.startswith("v2_") and f.endswith(".jpg")
-    ])
-    num_v1 = len(raw1_image_list)
-    num_v2 = len(raw2_image_list)
 
     ########## Depth Refine ##########
     depth_refine_model = MDMModel.from_pretrained(PATHS.lingbotdepth_ckpt).to(device)
@@ -190,6 +201,7 @@ if __name__ == "__main__":
 
     ########## Mask Generation ##########
     if not args.skip_masks:
+        # 根据 need_all_depth_mask 决定处理哪些帧
         if args.need_all_depth_mask:
             v1_mask_ids = list(range(num_v1))
             v2_mask_ids = list(range(num_v2))
@@ -217,6 +229,7 @@ if __name__ == "__main__":
         import shutil
         print("Copying keyframes to keyframe folders for downstream steps...")
         
+        # 需要重新读取关键帧列表
         v1_kf_set = set()
         v2_kf_set = set()
         if args.use_vggt:
@@ -232,6 +245,7 @@ if __name__ == "__main__":
         v1_kf_list = sorted(v1_kf_set)
         v2_kf_list = sorted(v2_kf_set)
         
+        # 创建关键帧文件夹
         depth_kf_dir1 = f"{v1_folder}/depths_keyframe_refined"
         depth_kf_dir2 = f"{v2_folder}/depths_keyframe_refined"
         mask_kf_dir1 = f"{v1_folder}/masks_keyframe"
@@ -241,6 +255,7 @@ if __name__ == "__main__":
         os.makedirs(mask_kf_dir1, exist_ok=True)
         os.makedirs(mask_kf_dir2, exist_ok=True)
         
+        # 复制 v1 关键帧
         for frame_id in v1_kf_list:
             depth_src = os.path.join(depth_frames_outdir1, f"v1_{frame_id:04d}.png")
             depth_dst = os.path.join(depth_kf_dir1, f"v1_{frame_id:04d}.png")
@@ -253,6 +268,7 @@ if __name__ == "__main__":
                 if os.path.exists(mask_src):
                     shutil.copy2(mask_src, mask_dst)
         
+        # 复制 v2 关键帧
         for frame_id in v2_kf_list:
             depth_src = os.path.join(depth_frames_outdir2, f"v2_{frame_id:04d}.png")
             depth_dst = os.path.join(depth_kf_dir2, f"v2_{frame_id:04d}.png")
@@ -269,6 +285,7 @@ if __name__ == "__main__":
 
     ########## Filter points2D with masks ##########
     if not args.skip_masks:
+        # Filter points2D 总是使用关键帧的 mask
         mask_kf_dir1 = f"{v1_folder}/masks_keyframe"
         mask_kf_dir2 = f"{v2_folder}/masks_keyframe"
         

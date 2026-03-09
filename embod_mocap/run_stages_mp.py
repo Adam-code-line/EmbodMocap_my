@@ -32,17 +32,14 @@ class Task:
     retry: int = 0
 
 
-def parse_steps(steps_raw: str) -> Tuple[List[int], bool]:
+def parse_steps(steps_raw: str) -> List[int]:
     arg_steps = steps_raw.split(',')
     steps: List[int] = []
-    run_vis = False
     for s in arg_steps:
         s = s.strip()
         if not s:
             continue
-        if s == 'vis':
-            run_vis = True
-        elif s.isdigit():
+        if s.isdigit():
             steps.append(int(s))
         elif '-' in s:
             start, end = s.split('-')
@@ -56,7 +53,7 @@ def parse_steps(steps_raw: str) -> Tuple[List[int], bool]:
         if st not in seen:
             seen.add(st)
             steps_uniq.append(st)
-    return steps_uniq, run_vis
+    return steps_uniq
 
 
 def parse_gpu_ids(gpu_ids_raw: str) -> List[int]:
@@ -92,12 +89,12 @@ def pick_device(base_device: str, gpu_id: int) -> str:
     return base_device
 
 
-def build_run_cmd(task_xlsx: str, task_steps: List[int], args, device: str, run_vis: bool = False) -> List[str]:
+def build_run_cmd(task_xlsx: str, task_steps: List[int], args, device: str) -> List[str]:
     cmd = [sys.executable, RUN_PATH, task_xlsx]
     cmd += ["--config", args.config]
     if args.data_root:
         cmd += ["--data_root", args.data_root]
-    cmd += ["--steps", "vis" if run_vis else ",".join(str(s) for s in task_steps)]
+    cmd += ["--steps", ",".join(str(s) for s in task_steps)]
     cmd += ["--device", device]
     cmd += ["--mode", args.mode]
 
@@ -105,8 +102,6 @@ def build_run_cmd(task_xlsx: str, task_steps: List[int], args, device: str, run_
         cmd.append("--force_all")
     if args.log_file:
         cmd += ["--log_file", args.log_file]
-    if args.vis:
-        cmd.append("--vis")
     if args.check:
         cmd.append("--check")
     if args.clean:
@@ -117,10 +112,10 @@ def build_run_cmd(task_xlsx: str, task_steps: List[int], args, device: str, run_
     return cmd
 
 
-def run_single_process(args, gpu_ids: List[int], run_vis: bool) -> int:
+def run_single_process(args, gpu_ids: List[int]) -> int:
     device = pick_device(args.device, gpu_ids[0])
-    steps, _ = parse_steps(args.steps)
-    cmd = build_run_cmd(args.xlsx, steps, args, device=device, run_vis=run_vis)
+    steps = parse_steps(args.steps)
+    cmd = build_run_cmd(args.xlsx, steps, args, device=device)
     print(f"[mp] single-process mode, forwarding to run_stages.py with device={device}")
     print("[mp] cmd:", " ".join(cmd))
     return subprocess.call(cmd)
@@ -206,7 +201,7 @@ def worker_loop(worker_id: int, gpu_id: int, task_q: mp.Queue, result_q: mp.Queu
                 continue
 
             device = pick_device(args.device, gpu_id)
-            cmd = build_run_cmd(task.xlsx_path, task.steps, args, device=device, run_vis=False)
+            cmd = build_run_cmd(task.xlsx_path, task.steps, args, device=device)
             print(f"[mp][worker-{worker_id}][gpu-{gpu_id}] running task={task.task_id} kind={task.kind} steps={task.steps}")
             ret = subprocess.call(cmd)
             status = "success" if ret == 0 else "failed"
@@ -364,7 +359,6 @@ def main():
     parser.add_argument('--clean', type=str, choices=['standard', 'fast', 'all'], help='forward to run_stages.py clean mode')
     parser.add_argument('--device', type=str, default='cuda', help='device base, e.g. cuda')
     parser.add_argument('--mode', type=str, default='skip', choices=['overwrite', 'skip'], help='overwrite or skip existing sequences')
-    parser.add_argument('--vis', action='store_true', help='visualize the results')
     parser.add_argument('--log_file', type=str, default=None, help='log file')
     parser.add_argument('--check', action='store_true', help='check completion status of specified steps')
     parser.add_argument('--clean_dry_run', action='store_true', help='preview clean actions without deleting files')
@@ -386,15 +380,15 @@ def main():
         sys.exit(1)
 
     gpu_ids = parse_gpu_ids(args.gpu_ids)
-    steps, run_vis = parse_steps(args.steps)
+    steps = parse_steps(args.steps)
 
     # Keep original behavior for non-pipeline actions and single-GPU mode.
-    if args.check or args.clean or run_vis:
-        code = run_single_process(args, gpu_ids, run_vis=run_vis)
+    if args.check or args.clean:
+        code = run_single_process(args, gpu_ids)
         sys.exit(code)
 
     if len(gpu_ids) <= 1:
-        code = run_single_process(args, gpu_ids, run_vis=False)
+        code = run_single_process(args, gpu_ids)
         sys.exit(code)
 
     if fcntl is None:

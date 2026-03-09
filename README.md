@@ -30,10 +30,19 @@
 
 <p align="center">
     <a href="https://arxiv.org/abs/2602.23205" target="_blank">
-    <img src="https://img.shields.io/badge/Paper-00AEEF?style=plastic&logo=arxiv&logoColor=white" alt="Paper">
+    <img src="https://img.shields.io/badge/arXiv-00AEEF?style=plastic&logo=arxiv&logoColor=white" alt="arXiv">
     </a>
     <a href="https://wenjiawang0312.github.io/projects/embodmocap/" target="_blank">
     <img src="https://img.shields.io/badge/Project Page-F78100?style=plastic&logo=google-chrome&logoColor=white" alt="Project Page">
+    </a>
+    <a href="https://www.youtube.com/watch?v=B5CDThL2ypo" target="_blank">
+    <img src="https://img.shields.io/badge/YouTube Video-FF0000?style=plastic&logo=youtube&logoColor=white" alt="YouTube Video">
+    </a>
+    <a href="https://huggingface.co/datasets/WenjiaWang/EmbodMocap_release" target="_blank">
+    <img src="https://img.shields.io/badge/🤗 HuggingFace Data-FFD21E?style=plastic&logoColor=black" alt="HuggingFace Data">
+    </a>
+    <a href="https://connecthkuhk-my.sharepoint.com/:f:/g/personal/wwj2022_connect_hku_hk/IgAh_tLK24aLT61TePApWqk1AdpvlVBHvyttzmO61fegoC0?e=ikzCTO" target="_blank">
+    <img src="https://img.shields.io/badge/OneDrive Data-4285F4?style=plastic&logo=googledrive&logoColor=white" alt="OneDrive Data">
     </a>
 </p>
 
@@ -51,35 +60,45 @@
 
 For new users, follow this order:
 
-1. **Installation**
+1. **Installation** - Set up environment, dependencies, and checkpoints
 
-   - English: [docs/install.md](docs/install.md)
-   - 中文: [docs/install_zh.md](docs/install_zh.md)
-   - Troubleshooting: [docs/QAs.md](docs/QAs.md)
-2. **Run the Main Pipeline**
+   - [docs/install.md](docs/install.md)
+2. **Main Pipeline** - Run the 16-step reconstruction pipeline
 
-   - English: [docs/embod_mocap.md](docs/embod_mocap.md)
-   - 中文: [docs/embod_mocap_zh.md](docs/embod_mocap_zh.md)
-3. **Understand Stages and Config Differences**
+   - [docs/embod_mocap.md](docs/embod_mocap.md)
+3. **Visualization** - Visualize results and inspect outputs
 
-   - Stage details: [English](docs/step_details.md) | [中文](docs/step_details_zh.md)
-4. **Visualization**
-
-   - English: [docs/visualization.md](docs/visualization.md)
-   - 中文: [docs/visualization_zh.md](docs/visualization_zh.md)
+   - [docs/visualization.md](docs/visualization.md)
 
 Notes:
 
 - Compared to the paper version, the open-source release replaces **PromptDA** with **LingbotDepth**.
 - `fast` is mainly for users who only care about **mesh + motion** for embodied tasks.
 - `standard` is for users who also need **RGBD/mask** assets for training reconstruction models.
+- We provide an interactive visualization tool based on **Viser** - give it a try!
+
+## Interactive Visualization with Viser
+
+Our Viser-based visualization tool allows you to interactively browse scenes, sequences, and SMPL motions in 3D:
+
+<div align="center">
+    <video src="./assets/viser.mp4" width="80%" controls></video>
+</div>
+
+Features:
+- Switch between multiple scenes and sequences
+- Interactive 3D viewing of scene mesh and SMPL motion
+- Real-time camera trajectory visualization
+- Frame-by-frame playback control
+
+See [docs/visualization.md](docs/visualization.md) for detailed usage.
 
 # 🎓 Citation
 
 If you find this project useful in your research, please consider citing us:
 
 ```
-@inproceedings{wang2025embodmocap,
+@inproceedings{wang2026embodmocap,
 title = {EmbodMocap: In-the-Wild 4D Human-Scene Reconstruction for Embodied Agents.},
 booktitle = {CVPR},
 author = {Wang, Wenjia and Pan, Liang and Pi, Huaijin and Lou, Yuke and Ren, Xuqian and Wu, Yifan and Liao, Zhouyingcheng and Yang, Lei, Dabral, Rishabh and Theobalt, Christian and Komura, Taku},

@@ -3,33 +3,35 @@
 支持时序拖动、相机显示、场景静态显示
 
 使用方法：
-    # 基本用法（加载所有帧）
-    python visualize_viser.py path/to/seq0
+    # 单场景模式（加载场景下的 seq*）
+    python visualize_viser.py --scene_path path/to/scene
     
     # 指定端口
-    python visualize_viser.py path/to/seq0 --port 8888
+    python visualize_viser.py --scene_path path/to/scene --port 8888
     
-    # 限制帧数（只加载前 100 帧）
-    python visualize_viser.py path/to/seq0 --max_frames 100
+    # 多场景模式（从 xlsx 清单读取）
+    python visualize_viser.py --xlsx seq_info.xlsx --data_root /path/to/data
     
     # 使用步长（每 5 帧加载一帧）
-    python visualize_viser.py path/to/seq0 --stride 5
+    python visualize_viser.py --scene_path path/to/scene --stride 5
     
     # 组合使用
-    python visualize_viser.py path/to/seq0 --max_frames 500 --stride 10 --port 8080
+    python visualize_viser.py --xlsx seq_info.xlsx --data_root /path/to/data --max_frames 500 --stride 10 --port 8080
 
 参数说明：
-    seq_path: 序列文件夹路径（包含 optim_params.npz）
+    --scene_path: 单场景文件夹路径（包含 seq* 子文件夹）
+    --xlsx: xlsx 清单路径（多场景模式）
+    --data_root: 与 xlsx 中 scene_folder 拼接的可选根目录
     --port: viser 服务器端口（默认 8080）
     --max_frames: 最大加载帧数（默认加载所有帧）
     --stride: 帧步长（默认 1，即每帧都加载）
     
 示例：
-    # 加载所有帧
-    python visualize_viser.py datasets/dataset_raw/0505_capture/0505apartment1/seq0
+    # 加载单场景
+    python visualize_viser.py --scene_path datasets/dataset_raw/0505_capture/0505apartment1
     
     # 快速预览：每 10 帧加载一帧
-    python visualize_viser.py datasets/dataset_raw/0505_capture/0505apartment1/seq0 --stride 10
+    python visualize_viser.py --scene_path datasets/dataset_raw/0505_capture/0505apartment1 --stride 10
 """
 import argparse
 import sys
@@ -44,7 +46,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from embod_mocap.utils.mesh_utils.mesh_sampler import SMPLMeshSampler
+from embod_mocap.utils.mesh_sampler import SMPLMeshSampler
 
 
 def load_smpl_model():
@@ -100,17 +102,33 @@ def load_motion_data(optim_params_path):
     }
 
 
+def resolve_scene_mesh_path(scene_path, scene_mesh='simple'):
+    """根据配置选择场景网格路径。"""
+    scene_path = Path(scene_path)
+
+    if scene_mesh == 'no':
+        return None
+    if scene_mesh == 'raw':
+        mesh_path = scene_path / 'mesh_raw.ply'
+        return mesh_path if mesh_path.exists() else None
+    if scene_mesh == 'simple':
+        mesh_simplified_path = scene_path / 'mesh_simplified.ply'
+        if mesh_simplified_path.exists():
+            return mesh_simplified_path
+        mesh_raw_path = scene_path / 'mesh_raw.ply'
+        if mesh_raw_path.exists():
+            print(f"Warning: {mesh_simplified_path} not found, using {mesh_raw_path.name}")
+            return mesh_raw_path
+        return None
+    raise ValueError(f"Unsupported scene_mesh mode: {scene_mesh}")
+
+
 def load_scene_data(mesh_path):
     """加载场景网格。"""
     mesh_path = Path(mesh_path)
-    mesh_simplified_path = mesh_path.parent / 'mesh_simplified.ply'
 
-    if not mesh_simplified_path.exists():
-        print(f"Warning: {mesh_simplified_path} not found, using mesh_raw.ply")
-        mesh_simplified_path = mesh_path
-
-    print(f"Loading mesh from: {mesh_simplified_path}")
-    scene_mesh = trimesh.load(str(mesh_simplified_path))
+    print(f"Loading mesh from: {mesh_path}")
+    scene_mesh = trimesh.load(str(mesh_path))
 
     vertices = scene_mesh.vertices
     faces = scene_mesh.faces
@@ -132,7 +150,7 @@ def load_scene_data(mesh_path):
 def load_data(seq_path, mesh_path=None, no_scene=False):
     """兼容旧调用：加载 optim_params.npz + 可选场景网格。"""
     motion = load_motion_data(seq_path)
-    if no_scene:
+    if no_scene or mesh_path is None:
         scene = {'scene_vertices': None, 'scene_faces': None, 'scene_colors': None}
     else:
         scene = load_scene_data(mesh_path)
@@ -313,7 +331,7 @@ class MotionSceneViewer:
         max_frames=-1,
         stride=1,
         high_quality=False,
-        no_scene=False,
+        scene_mesh='simple',
         mesh_level=1,
     ):
         self.server = viser.ViserServer(port=port)
@@ -327,7 +345,7 @@ class MotionSceneViewer:
         self.max_frames = max_frames
         self.stride = stride
         self.high_quality = high_quality
-        self.no_scene = no_scene
+        self.scene_mesh = scene_mesh
         self.mesh_level = mesh_level
 
         self.current_scene_key = None
@@ -478,16 +496,15 @@ class MotionSceneViewer:
             "scene_colors": None,
         }
 
-        if not self.no_scene:
-            mesh_path = self.scene_path / "mesh_raw.ply"
-            if mesh_path.exists():
-                self.scene_data = load_scene_data(mesh_path)
-                self.add_scene_mesh()
-                self.add_grid_floor()
-                if self.high_quality:
-                    self.setup_lighting()
-            else:
-                print(f"Warning: {mesh_path} not found, loading scene without mesh.")
+        mesh_path = resolve_scene_mesh_path(self.scene_path, self.scene_mesh)
+        if mesh_path is not None:
+            self.scene_data = load_scene_data(mesh_path)
+            self.add_scene_mesh()
+            self.add_grid_floor()
+            if self.high_quality:
+                self.setup_lighting()
+        elif self.scene_mesh != 'no':
+            print(f"Warning: scene mesh not found in {self.scene_path}, loading without mesh.")
 
         first_seq = self.seq_items[0][0]
         self._refresh_selectors(selected_seq=first_seq)
@@ -1014,7 +1031,13 @@ def main():
     parser.add_argument("--max_frames", type=int, default=-1, help="Maximum frames to load per sequence; -1 means all.")
     parser.add_argument("--stride", type=int, default=1, help="Frame sampling stride.")
     parser.add_argument("--hq", action="store_true", help="Enable high-quality rendering with multiple lights and shadows.")
-    parser.add_argument("--no_scene", action="store_true", help="Disable scene mesh loading and render SMPL only.")
+    parser.add_argument(
+        "--scene_mesh",
+        type=str,
+        default="simple",
+        choices=["raw", "simple", "no"],
+        help="Scene mesh mode: simple=prefer mesh_simplified.ply and fallback to mesh_raw.ply; raw=use mesh_raw.ply only; no=disable scene mesh.",
+    )
     parser.add_argument(
         "--mesh_level",
         type=int,
@@ -1065,7 +1088,7 @@ def main():
         max_frames=args.max_frames,
         stride=args.stride,
         high_quality=args.hq,
-        no_scene=args.no_scene,
+        scene_mesh=args.scene_mesh,
         mesh_level=args.mesh_level,
     )
     viewer.run()

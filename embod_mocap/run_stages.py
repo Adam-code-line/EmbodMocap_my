@@ -948,9 +948,9 @@ def full_steps(xlsx_path, data_root, config, steps):
                     print(f"Skip smoothing camera for {scene_folder} {seq_name}")
 
             # need to watch the two views to check the start frame ids of the two views, update the xlsx file
-            ################ step 6: slice views and visualize #################
+            ################ step 6: slice views #################
             if 6 in steps:
-                print(f"\n==== Step 6, Slicing views and visualize for {scene_folder} {seq_name} ====")
+                print(f"\n==== Step 6, Slicing views for {scene_folder} {seq_name} ====")
                 v1_start = str(row.get('v1_start', -1))
                 v2_start = str(row.get('v2_start', -1))
                 if int(v1_start) == -1 or int(v2_start) == -1:
@@ -981,8 +981,6 @@ def full_steps(xlsx_path, data_root, config, steps):
                     mode=args.mode,
                 )
                 run_cmd(cmd)
-            if args.vis:
-                run_cmd(f"python processor/visualize.py {seq_path} --device {args.device} --input --processed --downscale 2")
             ######## from now, the raw1 and raw2 are no more needed, we can clean the cache data ########
 
             ################ step 8: calibrate human view cameras #################
@@ -1141,15 +1139,6 @@ def full_steps(xlsx_path, data_root, config, steps):
                         use_prior=config_step[15].use_prior
                     )
                     run_cmd(cmd)
-                    if args.vis:
-                        cmd = build_command_with_flags(
-                            f"python processor/visualize.py {seq_path}",
-                            device=args.device,
-                            optim_cam=True,
-                            downscale=2,
-                            mode=args.mode,
-                        )
-                        run_cmd(cmd)
                 else:
                     print(f"Skip step 15, {seq_path}/optim_params.npz already exists")
                 
@@ -1171,15 +1160,6 @@ def full_steps(xlsx_path, data_root, config, steps):
                         cmd += f" --log_file {args.log_file}"
                     run_cmd(cmd)
 
-                    if args.vis:
-                        cmd = build_command_with_flags(
-                            f"python processor/visualize.py {seq_path}",
-                            device=args.device,
-                            align_contact=True,
-                            downscale=2,
-                            mode=args.mode,
-                        )
-                        run_cmd(cmd)
                 else:
                     print(f"Skip step 16, contact alignment already done for {seq_path}")
 
@@ -1190,67 +1170,10 @@ def full_steps(xlsx_path, data_root, config, steps):
             continue
 
 
-def run_visualization(xlsx_path, data_root, config, device='cuda', force_all=False):
-    """
-    Run visualization steps only:
-    1. Render SMPL from the v1 camera view
-    2. Render SMPL from the v2 camera view
-    """
-    xl = pd.ExcelFile(xlsx_path)
-    if len(xl.sheet_names) > 1:
-        print(f"Reading {len(xl.sheet_names)} sheets from {xlsx_path}")
-        dfs = []
-        for sheet_name in xl.sheet_names:
-            df_sheet = pd.read_excel(xlsx_path, sheet_name=sheet_name)
-            dfs.append(df_sheet)
-        df = pd.concat(dfs, ignore_index=True)
-    else:
-        df = pd.read_excel(xlsx_path)
-    
-    for idx, row in df.iterrows():
-        scene_folder_rel = str(row['scene_folder'])
-        seq_name = str(row['seq_name'])
-        
-        if data_root:
-            scene_folder = os.path.join(data_root, scene_folder_rel)
-        else:
-            scene_folder = scene_folder_rel
-        
-        if get_bool_from_excel(row, 'FAILED') and not force_all:
-            print(f"Skip {scene_folder_rel}/{seq_name}, marked as FAILED")
-            continue
-        
-        seq_path = os.path.join(scene_folder, seq_name)
-        
-        if not os.path.exists(seq_path):
-            print(f"Skip {seq_path}, path not exists")
-            continue
-        
-        print(f"\n{'='*60}")
-        print(f"Visualizing: {scene_folder_rel}/{seq_name}")
-        print(f"{'='*60}")
-        
-        try:
-            cmd = build_command_with_flags(
-                f"python processor/visualize.py {seq_path}",
-                device=device,
-                optim_cam=True,
-                downscale=2,
-                mode='overwrite',
-            )
-            run_cmd(cmd)
-            
-            print(f"Visualization completed for {seq_path}")
-            
-        except Exception as e:
-            print(f"Error visualizing {seq_path}: {e}")
-            continue
-
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('xlsx', nargs='?', default=None, help='')
-    parser.add_argument('--config', type=str, default='config.yaml', help='config file')
+    parser.add_argument('--config', type=str, default='config_fast.yaml', help='config file')
     parser.add_argument('--steps', type=str, default='0')
     parser.add_argument('--data_root', type=str, default=None, help='')
     parser.add_argument('--clean', type=str, 
@@ -1260,8 +1183,7 @@ if __name__ == "__main__":
                              'fast (keep only motion+scene), '
                              'all (remove all results, keep only raw files)')
     parser.add_argument('--device', type=str, default='cuda', help='device')
-    parser.add_argument('--mode', type=str, default='overwrite', choices=['overwrite', 'skip'], help='overwrite or skip the existing sequences')
-    parser.add_argument('--vis', action='store_true', help='visualize the results')
+    parser.add_argument('--mode', type=str, default='skip', choices=['overwrite', 'skip'], help='overwrite or skip the existing sequences')
     parser.add_argument('--log_file', type=str, default=None, help='log file')
     parser.add_argument('--check', action='store_true', help='check completion status of specified steps')
     parser.add_argument('--clean_dry_run', action='store_true', help='preview clean actions without deleting files')
@@ -1300,11 +1222,8 @@ if __name__ == "__main__":
         sys.exit(1)
     arg_steps = args.steps.split(',')
     steps = []
-    run_vis = False
     for s in arg_steps:
-        if s == 'vis':
-            run_vis = True
-        elif s.isdigit():
+        if s.isdigit():
             steps.append(int(s))
         elif '-' in s:
             start, end = s.split('-')
@@ -1317,7 +1236,5 @@ if __name__ == "__main__":
     
     if args.check:
         check_steps_completion(args.xlsx, config, steps, data_root=args.data_root, force_all=args.force_all)
-    elif run_vis:
-        run_visualization(args.xlsx, args.data_root, config, args.device, force_all=args.force_all)
     else:
         full_steps(args.xlsx, args.data_root, config=config, steps=steps)

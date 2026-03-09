@@ -16,7 +16,7 @@ class SMPLMeshSampler:
 
     def __init__(self, npz_path=None):
         if npz_path is None:
-            repo_root = Path(__file__).resolve().parents[3]
+            repo_root = Path(__file__).resolve().parents[2]
             npz_path = repo_root / "body_models" / "smpl" / "mesh_downsampling.npz"
 
         self.npz_path = Path(npz_path)
