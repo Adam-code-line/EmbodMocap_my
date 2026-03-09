@@ -14,7 +14,7 @@ We provide a demo dataset to help you get started quickly. Download it from our 
 cd embod_mocap
 
 # Run the demo with provided sample data
-python run_stages.py ../datasets/release_demo.xlsx --data_root ../datasets/dataset_demo --config config.yaml --steps 1-15 --mode overwrite
+python run_stages.py ../datasets/release_demo.xlsx --data_root ../datasets/dataset_demo --config config_fast.yaml --steps 1-15 --mode overwrite
 ```
 
 The demo includes pre-filled synchronization indices (`v1_start`/`v2_start`), so you can run the full pipeline directly.
@@ -29,20 +29,130 @@ python run_stages.py seq_info.xlsx --data_root /path/to/data --steps 0
 # 2) fill basic fields first (in_door / vertical / FAILED ...)
 
 # 3) run scene + early preprocess first
-python run_stages.py seq_info.xlsx --data_root /path/to/data --config config.yaml --steps 1-5 --mode overwrite
+python run_stages.py seq_info.xlsx --data_root /path/to/data --config config_fast.yaml --steps 1-5 --mode overwrite
 ```
 
 Then manually inspect two views to determine synchronization, and fill `v1_start` / `v2_start` in the XLSX file.
 
 ```bash
 # 4) continue the main pipeline
-python run_stages.py seq_info.xlsx --data_root /path/to/data --config config.yaml --steps 6-15 --mode overwrite
+python run_stages.py seq_info.xlsx --data_root /path/to/data --config config_fast.yaml --steps 6-15 --mode overwrite
 
 # 5) optional final step: run contact alignment only if `contacts` is labeled
-python run_stages.py seq_info.xlsx --data_root /path/to/data --config config.yaml --steps 16 --mode overwrite
+python run_stages.py seq_info.xlsx --data_root /path/to/data --config config_fast.yaml --steps 16 --mode overwrite
 
-# fast mode counterpart change the config file to config_fast.yaml
+# standard mode counterpart change the config file to config.yaml
+
+# `fast`: optimized for mesh + motion tasks and quicker iteration.
+# `standard`: keeps/generates fuller RGBD + mask assets for data/model training.
 ```
+
+## Dataset Download
+
+<details>
+<summary><strong>Show dataset download options</strong></summary>
+
+Before running the pipeline, download the released data package from one of the following sources:
+
+- HuggingFace: [EmbodMocap_release](https://huggingface.co/datasets/WenjiaWang/EmbodMocap_release)
+- OneDrive: [EmbodMocap OneDrive Data](https://connecthkuhk-my.sharepoint.com/:f:/g/personal/wwj2022_connect_hku_hk/IgAh_tLK24aLT61TePApWqk1AdpvlVBHvyttzmO61fegoC0?e=ikzCTO)
+
+Recommended files:
+
+- `dataset_demo.tar` + `release_demo.xlsx`
+  - Small demo package
+  - Contains 2 scenes and 4 sequences
+  - Good for installation verification and quick first run
+- `dataset_release.tar` + `release.xlsx`
+  - Full release package
+  - Contains 25 scenes and 105 sequences
+  - Use this for the complete benchmark / main experiments
+
+Suggested layout after extraction:
+
+```text
+datasets/
+├── dataset_demo/
+│   └── ...
+├── dataset_release/
+│   └── ...
+├── release_demo.xlsx
+└── release.xlsx
+```
+
+Example commands after extraction:
+
+```bash
+# demo
+cd embod_mocap
+python run_stages.py ../datasets/release_demo.xlsx --data_root ../datasets/dataset_demo --config config.yaml --steps 1-15 --mode overwrite
+
+# full release
+python run_stages.py ../datasets/release.xlsx --data_root ../datasets/dataset_release --config config.yaml --steps 1-15 --mode overwrite
+```
+
+</details>
+
+## File Layout
+
+<details>
+<summary><strong>Show recommended file layout</strong></summary>
+
+Below is a simple example showing how to organize checkpoints, body models, and datasets around this repository:
+
+```text
+EmbodMocap/
+├── checkpoints/
+│   ├── vggt.pt
+│   ├── sam2.1_hiera_large.pt
+│   ├── sam2.1_hiera_small.pt
+│   ├── vimo_checkpoint.pth.tar
+│   ├── yolov8x.pt
+│   ├── vitpose-h-multi-coco.pth
+│   ├── vocab_tree_flickr100K_words32K.bin
+│   └── vocab_tree_faiss_flickr100K_words1M.bin
+├── body_models/
+│   └── smpl/
+│       ├── SMPL_NEUTRAL.pkl
+│       ├── J_regressor_extra.npy
+│       ├── J_regressor_h36m.npy
+│       └── mesh_downsampling.npz
+├── datasets/
+│   └── dataset_raw/
+│       └── example_capture/
+│           └── example_scene/
+│               ├── calibration.json (raw input)
+│               ├── data.jsonl (raw input)
+│               ├── metadata.json (raw input)
+│               ├── transforms.json (step 1 output)
+│               ├── mesh_simplified.ply (step 2 output)
+│               └── seq0/
+│                   ├── raw1/
+│                   │   ├── data.mov (raw input)
+│                   │   ├── data.jsonl (raw input)
+│                   │   ├── calibration.json (raw input)
+│                   │   ├── metadata.json (raw input)
+│                   │   └── frames2/ (raw input frames)
+│                   ├── raw2/
+│                   │   └── ... (same as raw1)
+│                   ├── v1/
+│                   │   ├── images/ (step 6 output)
+│                   │   ├── depths/ (step 10 output, standard mode)
+│                   │   ├── depths_refined/ (step 10 output, standard mode)
+│                   │   └── masks/ (step 10 output, standard mode)
+│                   ├── v2/
+│                   │   └── ... (same as v1)
+│                   └── optim_params.npz (step 15 output)
+└── embod_mocap/
+```
+
+Suggested usage:
+
+- Put model checkpoints in `checkpoints/`.
+- Put SMPL/SMPL-X body-model assets in `body_models/`.
+- Put captured scenes under `datasets/` and pass that root to `--data_root`.
+
+</details>
 
 ### Multi-GPU Processing
 
@@ -60,13 +170,6 @@ python run_stages_mp.py seq_info.xlsx --data_root /path/to/data --config config.
 - `--max_retries`: max retries per task (default: 1)
 
 The multi-GPU version automatically distributes sequences across available GPUs for parallel processing.
-
-## Standard vs Fast
-
-Both modes share the same step definitions. The main difference between `standard` and `fast` is output completeness:
-
-- `fast`: optimized for mesh + motion tasks and quicker iteration.
-- `standard`: keeps/generates fuller RGBD + mask assets for data/model training.
 
 ## Step Overview (1-16)
 
@@ -167,7 +270,6 @@ Both modes share the same step definitions. The main difference between `standar
 - Goal: optional contact-aware global alignment.
 - Requires: valid `contacts` in XLSX.
 - Typical outputs: `optim_params_aligned.npz`, aligned camera/`kp3d` artifacts.
-
 
 </details>
 

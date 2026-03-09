@@ -85,35 +85,9 @@ gdown "https://drive.google.com/uc?id=1zJ0KP23tXD42D47cw1Gs7zE2BA_V_ERo&export=d
 gdown "https://drive.google.com/uc?id=1xyF7F3I7lWtdq82xmEPVQ5zl4HaasBso&export=download&confirm=t" -O 'checkpoints/vitpose-h-multi-coco.pth'
 ```
 
-## 6) Dataset Download
+## 6) Pipeline Assets
 
-Before running the pipeline, download the released data package from one of the following sources:
-
-- HuggingFace: `https://huggingface.co/datasets/WenjiaWang/EmbodMocap_release`
-- OneDrive: `https://connecthkuhk-my.sharepoint.com/:f:/g/personal/wwj2022_connect_hku_hk/IgAh_tLK24aLT61TePApWqk1AdpvlVBHvyttzmO61fegoC0?e=ikzCTO`
-
-Recommended files:
-
-- `dataset_demo.tar` + `release_demo.xlsx`
-  - Small demo package
-  - Contains 2 scenes and 4 sequences
-  - Good for installation verification and quick first run
-- `dataset_release.tar` + `release.xlsx`
-  - Full release package
-  - Contains 25 scenes and 105 sequences
-  - Use this for the complete benchmark / main experiments
-
-Suggested layout after extraction:
-
-```text
-datasets/
-├── dataset_demo/
-│   └── ...
-├── dataset_release/
-│   └── ...
-├── release_demo.xlsx
-└── release.xlsx
-```
+Dataset download links and the recommended file layout now live in `docs/embod_mocap.md` so the run commands and data organization stay in one place.
 
 ## 7) COLMAP
 
@@ -148,68 +122,6 @@ conda install -c iopath iopath
 conda install -c bottler nvidiacub
 # choose an appropriate pytorch3d package for your CUDA/PyTorch
 pip install git+https://github.com/WenjiaWang0312/torch3d_render.git
-```
-
-## 9) Example Path Layout
-
-Below is a simple example showing how to organize checkpoints, body models, and datasets around this repository:EmbodMocap/
-
-```text
-├── checkpoints/
-│   ├── vggt.pt
-│   ├── sam2.1_hiera_large.pt
-│   ├── sam2.1_hiera_small.pt
-│   ├── vimo_checkpoint.pth.tar
-│   ├── yolov8x.pt
-│   ├── vitpose-h-multi-coco.pth
-│   ├── vocab_tree_flickr100K_words32K.bin
-│   └── vocab_tree_faiss_flickr100K_words1M.bin
-├── body_models/
-│   └── smpl/
-│       ├── SMPL_NEUTRAL.pkl
-│       ├── J_regressor_extra.npy
-│       ├── J_regressor_h36m.npy
-│       └── mesh_downsampling.npz
-├── datasets/
-│   └── dataset_raw/
-│       └── example_capture/
-│           └── example_scene/
-│               ├── calibration.json (raw input)
-│               ├── data.jsonl (raw input)
-│               ├── metadata.json (raw input)
-│               ├── transforms.json (step 1 output)
-│               ├── mesh_simplified.ply (step 2 output)
-│               └── seq0/
-│                   ├── raw1/
-│                   │   ├── data.mov (raw input)
-│                   │   ├── data.jsonl (raw input)
-│                   │   ├── calibration.json (raw input)
-│                   │   ├── metadata.json (raw input)
-│                   │   └── frames2/ (raw input frames)
-│                   ├── raw2/
-│                   │   └── ... (same as raw1)
-│                   ├── v1/
-│                   │   ├── images/ (step 6 output)
-│                   │   ├── depths/ (step 10 output, standard mode)
-│                   │   ├── depths_refined/ (step 10 output, standard mode)
-│                   │   └── masks/ (step 10 output, standard mode)
-│                   ├── v2/
-│                   │   └── ... (same as v1)
-│                   └── optim_params.npz (step 15 output)
-└── embod_mocap/
-```
-
-Suggested usage:
-
-- Put model checkpoints in `checkpoints/`.
-- Put SMPL/SMPL-X body-model assets in `body_models/`.
-- Put captured scenes under `datasets/` and pass that root to `--data_root`.
-
-For example:
-
-```bash
-cd embod_mocap
-python run_stages.py seq_info.xlsx --data_root ../datasets/dataset_raw --config config.yaml --steps 1-5 --mode overwrite
 ```
 
 ## 10) Troubleshooting

@@ -83,46 +83,9 @@ gdown "https://drive.google.com/uc?id=1zJ0KP23tXD42D47cw1Gs7zE2BA_V_ERo&export=d
 gdown "https://drive.google.com/uc?id=1xyF7F3I7lWtdq82xmEPVQ5zl4HaasBso&export=download&confirm=t" -O 'checkpoints/vitpose-h-multi-coco.pth'
 ```
 
-## 6）数据集下载
+## 6）Pipeline 资产
 
-在运行主流程之前，请先从以下任一渠道下载发布数据：
-
-- HuggingFace：[EmbodMocap_release](https://huggingface.co/datasets/WenjiaWang/EmbodMocap_release)
-- OneDrive：[EmbodMocap OneDrive Data](https://connecthkuhk-my.sharepoint.com/:f:/g/personal/wwj2022_connect_hku_hk/IgAh_tLK24aLT61TePApWqk1AdpvlVBHvyttzmO61fegoC0?e=ikzCTO)
-
-推荐下载以下文件：
-
-- `dataset_demo.tar` + `release_demo.xlsx`
-  - 小型 demo 数据包
-  - 包含 2 个 scene、4 个 seq
-  - 适合安装验证和快速试跑
-- `dataset_release.tar` + `release.xlsx`
-  - 完整发布数据包
-  - 包含 25 个 scene、105 个 seq
-  - 适合完整 benchmark 或主实验
-
-解压后的推荐目录结构：
-
-```text
-datasets/
-├── dataset_demo/
-│   └── ...
-├── dataset_release/
-│   └── ...
-├── release_demo.xlsx
-└── release.xlsx
-```
-
-解压后可直接使用如下命令：
-
-```bash
-# demo
-cd embod_mocap
-python run_stages.py ../datasets/release_demo.xlsx --data_root ../datasets/dataset_demo --config config.yaml --steps 1-15 --mode overwrite
-
-# 完整发布数据
-python run_stages.py ../datasets/release.xlsx --data_root ../datasets/dataset_release --config config.yaml --steps 1-15 --mode overwrite
-```
+数据下载链接以及推荐文件布局现在统一放在 `docs/embod_mocap_zh.md`，这样运行命令和数据组织方式都集中在主流程文档里。
 
 ## 7）外部工具
 
@@ -160,69 +123,6 @@ conda install -c bottler nvidiacub
 pip install git+https://github.com/WenjiaWang0312/torch3d_render.git
 ```
 
-
-## 9）示例路径布局
-
-以下是一个简单示例，展示如何在本仓库周围组织 checkpoints、body models 和 datasets：
-
-```text
-EmbodMocap/
-├── checkpoints/
-│   ├── vggt.pt
-│   ├── sam2.1_hiera_large.pt
-│   ├── sam2.1_hiera_small.pt
-│   ├── vimo_checkpoint.pth.tar
-│   ├── yolov8x.pt
-│   ├── vitpose-h-multi-coco.pth
-│   ├── vocab_tree_flickr100K_words32K.bin
-│   └── vocab_tree_faiss_flickr100K_words1M.bin
-├── body_models/
-│   └── smpl/
-│       ├── SMPL_NEUTRAL.pkl
-│       ├── J_regressor_extra.npy
-│       ├── J_regressor_h36m.npy
-│       └── mesh_downsampling.npz
-├── datasets/
-│   └── dataset_raw/
-│       └── example_capture/
-│           └── example_scene/
-│               ├── calibration.json (原始输入)
-│               ├── data.jsonl (原始输入)
-│               ├── metadata.json (原始输入)
-│               ├── transforms.json (步骤 1 输出)
-│               ├── mesh_simplified.ply (步骤 2 输出)
-│               └── seq0/
-│                   ├── raw1/
-│                   │   ├── data.mov (原始输入)
-│                   │   ├── data.jsonl (原始输入)
-│                   │   ├── calibration.json (原始输入)
-│                   │   ├── metadata.json (原始输入)
-│                   │   └── frames2/ (原始输入帧)
-│                   ├── raw2/
-│                   │   └── ... (与 raw1 相同)
-│                   ├── v1/
-│                   │   ├── images/ (步骤 6 输出)
-│                   │   ├── depths/ (步骤 10 输出，standard 模式)
-│                   │   ├── depths_refined/ (步骤 10 输出，standard 模式)
-│                   │   └── masks/ (步骤 10 输出，standard 模式)
-│                   ├── v2/
-│                   │   └── ... (与 v1 相同)
-│                   └── optim_params.npz (步骤 15 输出)
-└── embod_mocap/
-```
-
-建议用法：
-
-- 将 checkpoints 放在 `checkpoints/`。
-- 将 SMPL/SMPL-X body-model 资产放在 `body_models/`。
-- 将捕获的 scene 放在 `datasets/` 下，并将该根目录传递给 `--data_root`。
-
-例如：
-
-```bash
-cd embod_mocap
-python run_stages.py seq_info.xlsx --data_root ../datasets/dataset_raw --config config.yaml --steps 1-5 --mode overwrite
-```
 
 ## 10）快速自检
 
