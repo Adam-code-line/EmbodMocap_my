@@ -14,7 +14,7 @@
 cd embod_mocap
 
 # 使用提供的示例数据运行演示
-python run_stages.py ../datasets/release_demo.xlsx --data_root ../datasets/dataset_demo --config config.yaml --steps 1-15 --mode overwrite
+python run_stages.py ../datasets/release_demo.xlsx --data_root ../datasets/dataset_demo --config config_fast.yaml --steps 1-15 --mode overwrite
 ```
 
 演示数据包含预填充的同步索引（`v1_start`/`v2_start`），因此您可以直接运行完整流程。
@@ -32,19 +32,22 @@ python run_stages.py seq_info.xlsx --data_root /path/to/data --steps 0
 # 2) 先填写基础字段（in_door / vertical / FAILED 等）
 
 # 3) 先跑 scene 与前半预处理
-python run_stages.py seq_info.xlsx --data_root /path/to/data --config config.yaml --steps 1-5 --mode overwrite
+python run_stages.py seq_info.xlsx --data_root /path/to/data --config config_fast.yaml --steps 1-5 --mode overwrite
 ```
 
 然后需要人工看双视角画面做同步，回填 xlsx 的 `v1_start` / `v2_start`。
 
 ```bash
 # 4) 对齐索引填写后，再继续主流程
-python run_stages.py seq_info.xlsx --data_root /path/to/data --config config.yaml --steps 6-15 --mode overwrite
+python run_stages.py seq_info.xlsx --data_root /path/to/data --config config_fast.yaml --steps 6-15 --mode overwrite
 
 # 5) 可选最终步骤：仅当标注了 `contacts` 时运行接触对齐
-python run_stages.py seq_info.xlsx --data_root /path/to/data --config config.yaml --steps 16 --mode overwrite
+python run_stages.py seq_info.xlsx --data_root /path/to/data --config config_fast.yaml --steps 16 --mode overwrite
 
-# fast 模式将配置文件改为 config_fast.yaml
+# standard 模式则将配置文件改为 config.yaml
+
+# `fast`：针对 mesh + motion 任务优化，迭代更快。
+# `standard`：保留/生成更完整的 RGBD + mask 资产，用于数据/模型训练。
 ```
 
 ## 数据集下载
