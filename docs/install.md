@@ -45,6 +45,15 @@ pip install -e embod_mocap
 
 Third-party dependencies are managed as Git submodules rather than vendored code.
 
+The submoudles are added by:
+
+```
+cd embodmocap
+git submodule add https://github.com/luca-medeiros/lang-segment-anything thirdparty/lang_sam
+git submodule add https://github.com/Robbyant/lingbot-depth thirdparty/lingbot_depth
+git submodule add https://github.com/ViTAE-Transformer/ViTPose thirdparty/ViTPose
+```
+
 Common modules:
 
 - `embod_mocap/thirdparty/lingbot_depth`
@@ -59,55 +68,13 @@ pip install -e embod_mocap/thirdparty/lang_sam
 pip install -e embod_mocap/thirdparty/ViTPose
 ```
 
-## 5) Checkpoints
+## 5) COLMAP
 
-```bash
-mkdir -p checkpoints
-```
+https://colmap.github.io/install.html
 
-Store project checkpoints under the repository-level `checkpoints/` folder.
+I worked with `apt install colmap`
 
-Recommended checkpoints (examples):
-
-```bash
-# VGGT
-wget https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt -O checkpoints/vggt.pt
-
-# SAM2, choose your preferred one
-wget https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt -O checkpoints/sam2.1_hiera_large.pt
-wget https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_small.pt -O checkpoints/sam2.1_hiera_small.pt
-
-# VIMO
-gdown --fuzzy -O ./checkpoints/vimo_checkpoint.pth.tar https://drive.google.com/file/d/1fdeUxn_hK4ERGFwuksFpV_-_PHZJuoiW/view?usp=share_link
-
-# detector / pose checkpoints
-gdown "https://drive.google.com/uc?id=1zJ0KP23tXD42D47cw1Gs7zE2BA_V_ERo&export=download&confirm=t" -O 'checkpoints/yolov8x.pt'
-gdown "https://drive.google.com/uc?id=1xyF7F3I7lWtdq82xmEPVQ5zl4HaasBso&export=download&confirm=t" -O 'checkpoints/vitpose-h-multi-coco.pth'
-```
-
-## 6) Pipeline Assets
-
-Dataset download links and the recommended file layout now live in `docs/embod_mocap.md` so the run commands and data organization stay in one place.
-
-## 7) COLMAP
-
-```bash
-sudo apt install libopenimageio-dev openimageio-tools
-sudo apt install libopenexr-dev
-```
-
-COLMAP install guide:
-
-- https://colmap.github.io/install.html
-
-Optional COLMAP vocab tree files (store them under `checkpoints/` as well):
-
-```bash
-wget 'https://github.com/colmap/colmap/releases/download/3.11.1/vocab_tree_flickr100K_words32K.bin' -O checkpoints/vocab_tree_flickr100K_words32K.bin
-wget 'https://github.com/colmap/colmap/releases/download/3.11.1/vocab_tree_faiss_flickr100K_words1M.bin' -O checkpoints/vocab_tree_faiss_flickr100K_words1M.bin
-```
-
-## 8)  Other Dependencies
+## 6) Other Dependencies
 
 ### torch-scatter (for selected training/eval paths)
 
@@ -115,16 +82,17 @@ wget 'https://github.com/colmap/colmap/releases/download/3.11.1/vocab_tree_faiss
 pip install torch-scatter -f https://data.pyg.org/whl/torch-2.7.0+cu128.html
 ```
 
-### pytorch3d / rendering stack (optional)
+### pytorch3d(optional, render camera space)
 
 ```bash
 conda install -c iopath iopath
 conda install -c bottler nvidiacub
-# choose an appropriate pytorch3d package for your CUDA/PyTorch
+# choose an appropriate pytorch3d package for your CUDA/PyTorch, e.g. from https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/pytorch3d/linux-64/, and use
+conda install --use-local xxx.tar.bz2
 pip install git+https://github.com/WenjiaWang0312/torch3d_render.git
 ```
 
-## 10) Troubleshooting
+## 7) Troubleshooting
 
 ### COLMAP
 

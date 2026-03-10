@@ -6,9 +6,38 @@ The unified entrypoint is `embod_mocap/run_stages.py`.
 
 ## Quick Start
 
-### Demo with Sample Data
+Before running the pipeline, download the required assets:
 
-We provide a demo dataset to help you get started quickly. Download it from our data release and try:
+```bash
+# checkpoints
+bash embod_mocap/tools/download_ckpt.sh
+
+# SMPL body model assets
+bash embod_mocap/tools/download_body_models.sh
+
+# demo dataset + release_demo.xlsx
+bash embod_mocap/tools/download_demo_data.sh
+```
+
+Use `download_full_data.sh` only if you need the complete benchmark / full release data.
+
+```bash
+bash embod_mocap/tools/download_full_data.sh
+```
+
+### Visualize the Provided Data
+
+If you want to inspect the released demo results before running the pipeline, launch the interactive Viser viewer:
+
+```bash
+cd embod_mocap
+
+python tools/visualize_viser.py --xlsx ../datasets/release_demo.xlsx --data_root ../datasets/dataset_demo --stride 2 --scene_mesh simple --mesh_level 1
+```
+
+### Run the Pipeline on Sample Data
+
+You can run the pipeline over our provided demo data.
 
 ```bash
 cd embod_mocap
@@ -21,12 +50,41 @@ The demo includes pre-filled synchronization indices (`v1_start`/`v2_start`), so
 
 ### From Scratch
 
+To process your own capture, first organize the files under `datasets/` like this:
+
+```text
+datasets/
+└── my_capture/
+    └── livingroom1/
+        ├── calibration.json
+        ├── data.jsonl
+        ├── data.mov
+        ├── frames2/
+        ├── metadata.json
+        ├── seq0/
+        │   ├── recording_2026-01-25_17-51-07.zip
+        │   └── recording_2026-01-25_17-51-08.zip
+        └── seq1/
+            ├── recording_2026-01-25_18-10-11.zip
+            └── recording_2026-01-25_18-10-11(1).zip
+```
+
+Keep the original recording zip names. Our scripts will automatically unpack and rename the two views into `raw1/` and `raw2/`.
+
+The two recording zip files should come from the same capture event, so their timestamps should be very close and may even be identical.
+
+For temporal synchronization, we use a laser pointer as a visual cue during capture. Before step 6, inspect the extracted images under `raw1/` and `raw2/`, and find the frame where the laser spot disappears in each view. Use those frames to fill `v1_start` and `v2_start` in the xlsx file. You can use a similar synchronization cue such as a flashlight / phone flash if that is easier in your setup.
+
+See the `File Layout` section below for the detailed folder structure and required files.
+
 ```bash
+cd embod_mocap
 
 # 1) auto-generate xlsx (will fail if file already exists)
 python run_stages.py seq_info.xlsx --data_root /path/to/data --steps 0
 
 # 2) fill basic fields first (in_door / vertical / FAILED ...)
+#    mark `FAILED` only for sequences that have been manually checked and judged unusable
 
 # 3) run scene + early preprocess first
 python run_stages.py seq_info.xlsx --data_root /path/to/data --config config_fast.yaml --steps 1-5 --mode overwrite
@@ -41,10 +99,9 @@ python run_stages.py seq_info.xlsx --data_root /path/to/data --config config_fas
 # 5) optional final step: run contact alignment only if `contacts` is labeled
 python run_stages.py seq_info.xlsx --data_root /path/to/data --config config_fast.yaml --steps 16 --mode overwrite
 
-# standard mode counterpart change the config file to config.yaml
-
-# `fast`: optimized for mesh + motion tasks and quicker iteration.
-# `standard`: keeps/generates fuller RGBD + mask assets for data/model training.
+# for `standard` mode, replace `config_fast.yaml` with `config.yaml`
+# `fast` is optimized for mesh + motion tasks and quicker iteration
+# `standard` keeps/generates fuller RGBD + mask assets for data/model training
 ```
 
 ## Dataset Download
@@ -52,46 +109,12 @@ python run_stages.py seq_info.xlsx --data_root /path/to/data --config config_fas
 <details>
 <summary><strong>Show dataset download options</strong></summary>
 
-Before running the pipeline, download the released data package from one of the following sources:
+For most users, the download scripts in the Quick Start section are enough.
+
+Use this section only if you prefer to manually download the released files from one of the following sources:
 
 - HuggingFace: [EmbodMocap_release](https://huggingface.co/datasets/WenjiaWang/EmbodMocap_release)
 - OneDrive: [EmbodMocap OneDrive Data](https://connecthkuhk-my.sharepoint.com/:f:/g/personal/wwj2022_connect_hku_hk/IgAh_tLK24aLT61TePApWqk1AdpvlVBHvyttzmO61fegoC0?e=ikzCTO)
-
-Recommended files:
-
-- `dataset_demo.tar` + `release_demo.xlsx`
-  - Small demo package
-  - Contains 2 scenes and 4 sequences
-  - Good for installation verification and quick first run
-- `dataset_release.tar` + `release.xlsx`
-  - Full release package
-  - Contains 25 scenes and 105 sequences
-  - Use this for the complete benchmark / main experiments
-
-Suggested layout after extraction:
-
-```text
-datasets/
-├── dataset_demo/
-│   └── ...
-├── dataset_release/
-│   └── ...
-├── release_demo.xlsx
-└── release.xlsx
-```
-
-Example commands after extraction:
-
-```bash
-# demo
-cd embod_mocap
-python run_stages.py ../datasets/release_demo.xlsx --data_root ../datasets/dataset_demo --config config.yaml --steps 1-15 --mode overwrite
-
-# full release
-python run_stages.py ../datasets/release.xlsx --data_root ../datasets/dataset_release --config config.yaml --steps 1-15 --mode overwrite
-```
-
-</details>
 
 ## File Layout
 
@@ -118,31 +141,34 @@ EmbodMocap/
 │       ├── J_regressor_h36m.npy
 │       └── mesh_downsampling.npz
 ├── datasets/
-│   └── dataset_raw/
-│       └── example_capture/
-│           └── example_scene/
-│               ├── calibration.json (raw input)
-│               ├── data.jsonl (raw input)
-│               ├── metadata.json (raw input)
-│               ├── transforms.json (step 1 output)
-│               ├── mesh_simplified.ply (step 2 output)
-│               └── seq0/
-│                   ├── raw1/
-│                   │   ├── data.mov (raw input)
-│                   │   ├── data.jsonl (raw input)
-│                   │   ├── calibration.json (raw input)
-│                   │   ├── metadata.json (raw input)
-│                   │   └── frames2/ (raw input frames)
-│                   ├── raw2/
-│                   │   └── ... (same as raw1)
-│                   ├── v1/
-│                   │   ├── images/ (step 6 output)
-│                   │   ├── depths/ (step 10 output, standard mode)
-│                   │   ├── depths_refined/ (step 10 output, standard mode)
-│                   │   └── masks/ (step 10 output, standard mode)
-│                   ├── v2/
-│                   │   └── ... (same as v1)
-│                   └── optim_params.npz (step 15 output)
+│   └── my_capture/
+│       └── livingroom1/
+│           ├── calibration.json (raw file)
+│           ├── data.jsonl (raw file)
+│           ├── data.mov (raw file)
+│           ├── frames2/ (raw files)
+│           ├── metadata.json (raw file)
+│           ├── seq0/
+│           │   ├── raw1/
+│           │   │   ├── data.mov (raw file)
+│           │   │   ├── data.jsonl (raw file)
+│           │   │   ├── calibration.json (raw file)
+│           │   │   ├── metadata.json (raw file)
+│           │   │   └── frames2/ (raw files)
+│           │   ├── raw2/
+│           │   │   └── ... (same as raw1)
+│           │   ├── v1/
+│           │   │   ├── images/ (step 6 output)
+│           │   │   ├── depths/ (step 10 output, standard mode)
+│           │   │   ├── depths_refined/ (step 10 output, standard mode)
+│           │   │   └── masks/ (step 10 output, standard mode)
+│           │   ├── v2/
+│           │   │   └── ... (same as v1)
+│           │   └── optim_params.npz (step 15 output)
+│           ├── seq1/
+│           │   └── ...
+│           ├── transforms.json (step 1 output)
+│           └── mesh_simplified.ply (step 2 output)
 └── embod_mocap/
 ```
 
@@ -151,6 +177,7 @@ Suggested usage:
 - Put model checkpoints in `checkpoints/`.
 - Put SMPL/SMPL-X body-model assets in `body_models/`.
 - Put captured scenes under `datasets/` and pass that root to `--data_root`.
+- For your own captures, just place the two `recording_*.zip` files inside each `seq*` folder; the scripts will organize them into `raw1/` and `raw2/` automatically.
 
 </details>
 

@@ -49,17 +49,6 @@ coverage.xml
 *.cover
 .hypothesis/
 .pytest_cache/
-pi3_hmr/outputs
-pi3_hmr/demo
-pi3_hmr/eval_results
-pi3_hmr/cache
-pi3_hmr/datasets
-tram/data
-amp/datasets
-amp/output/
-amp/metrics
-tram/datasets
-tram/outputs
 # Translations
 *.mo
 *.pot
@@ -107,9 +96,8 @@ venv.bak/
 # Rope project settings
 .ropeproject
 datasets/
-checkpoints
 checkpoints/
-body_models
+body_models/
 # mkdocs documentation
 /site
 # embod_mocap/thirdparty
@@ -144,7 +132,7 @@ logs/
 demo/
 !assets/
 !assets/**
-!assets/viser.mp4
+!assets/viser.gif
 # Resources as exception
 !resources/*
 *.tar.gz

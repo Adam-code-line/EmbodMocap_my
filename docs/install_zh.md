@@ -2,7 +2,7 @@
 
 **语言切换 / Language:** [中文](install_zh.md) | [English](install.md)
 
-本文覆盖开源主流程所需的安装步骤与依赖 / checkpoints 配置。
+本文覆盖开源主流程所需的安装步骤以及必要依赖 / checkpoints 配置。
 
 ## 1）克隆仓库
 
@@ -11,7 +11,7 @@ git clone --recurse-submodules https://github.com/WenjiaWang0312/EmbodMocap
 cd EmbodMocap
 ```
 
-如果已克隆但没拉 submodule：
+如果已克隆但还没有拉取 submodule：
 
 ```bash
 git submodule update --init --recursive
@@ -24,14 +24,14 @@ conda create -n embodmocap python=3.11 -y
 conda activate embodmocap
 ```
 
-按 CUDA 版本安装 PyTorch（任选一套）：
+根据你的 CUDA 运行时安装 PyTorch（下面给出两个示例）：
 
 ```bash
 # CUDA 12.4 示例
 pip install torch==2.4.1 torchvision==0.19.1 --extra-index-url https://download.pytorch.org/whl/cu124
 
 # CUDA 12.8 示例
-# pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
+pip install torch==2.7.0 torchvision==0.22.0 torchaudio==2.7.0 --index-url https://download.pytorch.org/whl/cu128
 ```
 
 ## 3）安装核心依赖
@@ -41,17 +41,26 @@ pip install -r requirements.txt
 pip install -e embod_mocap
 ```
 
-
 ## 4）第三方模块（Submodule）
 
-第三方依赖通过 Git submodule 管理，而非直接内置源码。
+第三方依赖通过 Git submodule 管理，而不是直接内置在仓库中。
+
+这些 submodule 可通过以下命令添加：
+
+```bash
+cd embodmocap
+git submodule add https://github.com/luca-medeiros/lang-segment-anything thirdparty/lang_sam
+git submodule add https://github.com/Robbyant/lingbot-depth thirdparty/lingbot_depth
+git submodule add https://github.com/ViTAE-Transformer/ViTPose thirdparty/ViTPose
+```
 
 常见模块：
+
 - `embod_mocap/thirdparty/lingbot_depth`
 - `embod_mocap/thirdparty/lang_sam`
 - `embod_mocap/thirdparty/ViTPose`
 
-如需可编辑安装：
+如果需要可编辑安装：
 
 ```bash
 pip install -e embod_mocap/thirdparty/lingbot_depth
@@ -59,56 +68,20 @@ pip install -e embod_mocap/thirdparty/lang_sam
 pip install -e embod_mocap/thirdparty/ViTPose
 ```
 
-## 5）Checkpoints
-
-```bash
-mkdir -p checkpoints
-```
-
-常用示例：
-
-```bash
-# VGGT
-wget https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt -O checkpoints/vggt.pt
-
-# SAM2
-wget https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt -O checkpoints/sam2.1_hiera_large.pt
-wget https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_small.pt -O checkpoints/sam2.1_hiera_small.pt
-
-# VIMO
-gdown --fuzzy -O ./checkpoints/vimo_checkpoint.pth.tar https://drive.google.com/file/d/1fdeUxn_hK4ERGFwuksFpV_-_PHZJuoiW/view?usp=share_link
-
-# detector / pose checkpoints
-gdown "https://drive.google.com/uc?id=1zJ0KP23tXD42D47cw1Gs7zE2BA_V_ERo&export=download&confirm=t" -O 'checkpoints/yolov8x.pt'
-gdown "https://drive.google.com/uc?id=1xyF7F3I7lWtdq82xmEPVQ5zl4HaasBso&export=download&confirm=t" -O 'checkpoints/vitpose-h-multi-coco.pth'
-```
-
-## 6）Pipeline 资产
-
-数据下载链接以及推荐文件布局现在统一放在 `docs/embod_mocap_zh.md`，这样运行命令和数据组织方式都集中在主流程文档里。
-
-## 7）外部工具
-
-### COLMAP
+## 5）COLMAP
 
 ```bash
 sudo apt install libopenimageio-dev openimageio-tools
 sudo apt install libopenexr-dev
 ```
 
-COLMAP 官方安装：
+COLMAP 安装指南：
+
 - https://colmap.github.io/install.html
 
-可选 vocab tree：
+## 6）其他依赖
 
-```bash
-wget 'https://github.com/colmap/colmap/releases/download/3.11.1/vocab_tree_flickr100K_words32K.bin' -O $your_colmap_path
-wget 'https://github.com/colmap/colmap/releases/download/3.11.1/vocab_tree_faiss_flickr100K_words1M.bin' -O $your_colmap_path
-```
-
-## 8）高级可选依赖
-
-### torch-scatter（部分训练/评估路径）
+### torch-scatter（部分训练 / 评估路径需要）
 
 ```bash
 pip install torch-scatter -f https://data.pyg.org/whl/torch-2.7.0+cu128.html
@@ -119,20 +92,11 @@ pip install torch-scatter -f https://data.pyg.org/whl/torch-2.7.0+cu128.html
 ```bash
 conda install -c iopath iopath
 conda install -c bottler nvidiacub
-# 选择匹配你 CUDA/PyTorch 的 pytorch3d 版本
+# 选择与你的 CUDA / PyTorch 匹配的 pytorch3d 包
 pip install git+https://github.com/WenjiaWang0312/torch3d_render.git
 ```
 
-
-## 10）快速自检
-
-```bash
-cd embod_mocap
-python run_stages.py -h
-python tools/visualize.py -h
-```
-
-## 11）排障
+## 7）排障
 
 ### COLMAP
 
@@ -159,7 +123,7 @@ export LD_LIBRARY_PATH=/home/wwj/miniconda3/envs/droidenv/lib/:$LD_LIBRARY_PATH
 
 #### 配准问题
 
-COLMAP 配准和定位问题，参考：
+关于 COLMAP 配准与定位问题，参考：
 
 - https://colmap.github.io/faq.html#register-localize-new-images-into-an-existing-reconstruction
 
@@ -181,7 +145,7 @@ pip install git+https://github.com/mattloper/chumpy
 pip install numpy==1.26.4
 ```
 
-可能还需要：
+你可能还需要：
 
 ```bash
 pip install --force-reinstall charset-normalizer==3.1.0

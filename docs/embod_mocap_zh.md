@@ -6,9 +6,38 @@
 
 ## 快速开始
 
-### 使用示例数据演示
+运行主流程前，先下载所需资源：
 
-我们提供了演示数据集帮助您快速上手。从我们的数据发布中下载后尝试：
+```bash
+# checkpoints
+bash embod_mocap/tools/download_ckpt.sh
+
+# SMPL 人体模型资源
+bash embod_mocap/tools/download_body_models.sh
+
+# demo 数据 + release_demo.xlsx
+bash embod_mocap/tools/download_demo_data.sh
+```
+
+如果你需要完整 benchmark / 全量发布数据，再执行 `download_full_data.sh`。
+
+```bash
+bash embod_mocap/tools/download_full_data.sh
+```
+
+### 先查看我们提供的结果
+
+如果你想在跑主流程前先浏览发布的 demo 结果，可以启动交互式 Viser 可视化：
+
+```bash
+cd embod_mocap
+python tools/visualize_viser.py --xlsx ../datasets/release_demo.xlsx --data_root ../datasets/dataset_demo --stride 2 --scene_mesh simple --mesh_level 1
+```
+
+
+### 使用示例数据跑通主流程
+
+你可以直接在我们提供的 demo 数据上运行主流程。
 
 ```bash
 cd embod_mocap
@@ -21,7 +50,34 @@ python run_stages.py ../datasets/release_demo.xlsx --data_root ../datasets/datas
 
 ### 从头开始
 
-建议在 `embod_mocap/` 目录执行：
+如果你要处理自己采集的数据，先把文件组织成下面这样：
+
+```text
+datasets/
+└── my_capture/
+    └── livingroom1/
+        ├── calibration.json
+        ├── data.jsonl
+        ├── data.mov
+        ├── frames2/
+        ├── metadata.json
+        ├── seq0/
+        │   ├── recording_2026-01-25_17-51-07.zip
+        │   └── recording_2026-01-25_17-51-08.zip
+        └── seq1/
+            ├── recording_2026-01-25_18-10-11.zip
+            └── recording_2026-01-25_18-10-11(1).zip
+```
+
+保留原始 zip 文件名即可。后续脚本会自动解压，并将两个视角整理/重命名为 `raw1/` 和 `raw2/`。
+
+这两个录制 zip 应该来自同一次采集，因此时间戳通常会非常接近，甚至可能相同。
+
+时序对齐方面，我们采集时会用激光笔作为同步信号。在 step 6 之前，请先检查 `raw1/` 和 `raw2/` 中解压出来的图像，找到各自画面里激光光斑消失的那一帧，并将对应帧号填写到 xlsx 的 `v1_start` 和 `v2_start`。你也可以用类似的同步方案，例如手电筒、手机闪光灯等明显的瞬时光信号。
+
+更详细的目录结构和所需文件说明，请直接看下面的 `文件布局` 小节。
+
+建议在 `embod_mocap/` 目录中执行：
 
 ```bash
 cd embod_mocap
@@ -30,12 +86,13 @@ cd embod_mocap
 python run_stages.py seq_info.xlsx --data_root /path/to/data --steps 0
 
 # 2) 先填写基础字段（in_door / vertical / FAILED 等）
+#    `FAILED` 表示该序列已经过人工检查，并被判断为不可用
 
 # 3) 先跑 scene 与前半预处理
 python run_stages.py seq_info.xlsx --data_root /path/to/data --config config_fast.yaml --steps 1-5 --mode overwrite
 ```
 
-然后需要人工看双视角画面做同步，回填 xlsx 的 `v1_start` / `v2_start`。
+然后人工检查两个视角，确定同步关系，并在 xlsx 中填写 `v1_start` / `v2_start`。
 
 ```bash
 # 4) 对齐索引填写后，再继续主流程
@@ -44,10 +101,9 @@ python run_stages.py seq_info.xlsx --data_root /path/to/data --config config_fas
 # 5) 可选最终步骤：仅当标注了 `contacts` 时运行接触对齐
 python run_stages.py seq_info.xlsx --data_root /path/to/data --config config_fast.yaml --steps 16 --mode overwrite
 
-# standard 模式则将配置文件改为 config.yaml
-
-# `fast`：针对 mesh + motion 任务优化，迭代更快。
-# `standard`：保留/生成更完整的 RGBD + mask 资产，用于数据/模型训练。
+# 如果使用 `standard` 模式，将 `config_fast.yaml` 替换为 `config.yaml`
+# `fast`：针对 mesh + motion 任务优化，迭代更快
+# `standard`：保留/生成更完整的 RGBD + mask 资产，用于数据/模型训练
 ```
 
 ## 数据集下载
@@ -55,12 +111,14 @@ python run_stages.py seq_info.xlsx --data_root /path/to/data --config config_fas
 <details>
 <summary><strong>展开数据下载说明</strong></summary>
 
-在运行主流程之前，请先从以下任一渠道下载发布数据：
+对大多数用户来说，前面 Quick Start 里的下载脚本已经足够。
+
+只有当你想手动下载发布文件时，再看下面这些链接：
 
 - HuggingFace：[EmbodMocap_release](https://huggingface.co/datasets/WenjiaWang/EmbodMocap_release)
 - OneDrive：[EmbodMocap OneDrive Data](https://connecthkuhk-my.sharepoint.com/:f:/g/personal/wwj2022_connect_hku_hk/IgAh_tLK24aLT61TePApWqk1AdpvlVBHvyttzmO61fegoC0?e=ikzCTO)
 
-推荐下载以下文件：
+手动下载时，推荐下载以下文件：
 
 - `dataset_demo.tar` + `release_demo.xlsx`
   - 小型 demo 数据包
@@ -71,7 +129,7 @@ python run_stages.py seq_info.xlsx --data_root /path/to/data --config config_fas
   - 包含 25 个 scene、105 个 seq
   - 适合完整 benchmark 或主实验
 
-解压后的推荐目录结构：
+手动解压后的推荐目录结构：
 
 ```text
 datasets/
@@ -83,7 +141,7 @@ datasets/
 └── release.xlsx
 ```
 
-解压后可直接使用如下命令：
+手动解压后可直接使用如下命令：
 
 ```bash
 # demo
@@ -121,31 +179,36 @@ EmbodMocap/
 │       ├── J_regressor_h36m.npy
 │       └── mesh_downsampling.npz
 ├── datasets/
-│   └── dataset_raw/
-│       └── example_capture/
-│           └── example_scene/
-│               ├── calibration.json (原始输入)
-│               ├── data.jsonl (原始输入)
-│               ├── metadata.json (原始输入)
-│               ├── transforms.json (Step 1 输出)
-│               ├── mesh_simplified.ply (Step 2 输出)
-│               └── seq0/
-│                   ├── raw1/
-│                   │   ├── data.mov (原始输入)
-│                   │   ├── data.jsonl (原始输入)
-│                   │   ├── calibration.json (原始输入)
-│                   │   ├── metadata.json (原始输入)
-│                   │   └── frames2/ (原始输入帧)
-│                   ├── raw2/
-│                   │   └── ... (与 raw1 相同)
-│                   ├── v1/
-│                   │   ├── images/ (Step 6 输出)
-│                   │   ├── depths/ (Step 10 输出，standard 模式)
-│                   │   ├── depths_refined/ (Step 10 输出，standard 模式)
-│                   │   └── masks/ (Step 10 输出，standard 模式)
-│                   ├── v2/
-│                   │   └── ... (与 v1 相同)
-│                   └── optim_params.npz (Step 15 输出)
+│   └── my_capture/
+│       └── livingroom1/
+│           ├── calibration.json（原始文件）
+│           ├── data.jsonl（原始文件）
+│           ├── data.mov（原始文件）
+│           ├── frames2/（原始文件）
+│           ├── metadata.json（原始文件）
+│           ├── seq0/
+│           │   ├── recording_2026-01-25_17-51-07.zip（iPhone A 原始文件）
+│           │   ├── recording_2026-01-25_17-53-42.zip（iPhone B 原始文件）
+│           │   ├── raw1/
+│           │   │   ├── data.mov（原始文件）
+│           │   │   ├── data.jsonl（原始文件）
+│           │   │   ├── calibration.json（原始文件）
+│           │   │   ├── metadata.json（原始文件）
+│           │   │   └── frames2/（原始文件）
+│           │   ├── raw2/
+│           │   │   └── ...（与 raw1 相同）
+│           │   ├── v1/
+│           │   │   ├── images/（Step 6 输出）
+│           │   │   ├── depths/（Step 10 输出，standard 模式）
+│           │   │   ├── depths_refined/（Step 10 输出，standard 模式）
+│           │   │   └── masks/（Step 10 输出，standard 模式）
+│           │   ├── v2/
+│           │   │   └── ...（与 v1 相同）
+│           │   └── optim_params.npz（Step 15 输出）
+│           ├── seq1/
+│           │   └── ...
+│           ├── transforms.json（Step 1 输出）
+│           └── mesh_simplified.ply（Step 2 输出）
 └── embod_mocap/
 ```
 
@@ -154,6 +217,7 @@ EmbodMocap/
 - 将 checkpoints 放在 `checkpoints/`。
 - 将 SMPL/SMPL-X body-model 资产放在 `body_models/`。
 - 将捕获的 scene 放在 `datasets/` 下，并将该根目录传递给 `--data_root`。
+- 对于自己采集的数据，只需要把两个 `recording_*.zip` 放进每个 `seq*` 文件夹；脚本会自动整理成 `raw1/` 和 `raw2/`。
 
 </details>
 

@@ -82,10 +82,12 @@ Notes:
 Our Viser-based visualization tool allows you to interactively browse scenes, sequences, and SMPL motions in 3D:
 
 <div align="center">
-    <video src="./assets/viser.mp4" width="80%" controls></video>
+    <img src="./assets/viser.gif" width="80%">
 </div>
 
+
 Features:
+
 - Switch between multiple scenes and sequences
 - Interactive 3D viewing of scene mesh and SMPL motion
 - Real-time camera trajectory visualization
