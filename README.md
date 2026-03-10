@@ -60,13 +60,13 @@
 
 For new users, follow this order:
 
-1. **Installation** - Set up environment, dependencies, and checkpoints
-
-   - [docs/install.md](docs/install.md)
-2. **Main Pipeline** - Run the 16-step reconstruction pipeline
+1. **Main Pipeline** - Quick downloads, preview / visualization, running the pipeline, and step-by-step workflow notes
 
    - [docs/embod_mocap.md](docs/embod_mocap.md)
-3. **Visualization** - Visualize results and inspect outputs
+2. **Installation** - Set up the environment, core dependencies, and manual download references
+
+   - [docs/install.md](docs/install.md)
+3. **Visualization** - Generate rendered videos or inspect scenes and motions interactively with Viser
 
    - [docs/visualization.md](docs/visualization.md)
 
@@ -84,7 +84,6 @@ Our Viser-based visualization tool allows you to interactively browse scenes, se
 <div align="center">
     <img src="./assets/viser.gif" width="80%">
 </div>
-
 
 Features:
 

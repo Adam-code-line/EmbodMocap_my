@@ -6,8 +6,7 @@ trimesh
 imageio
 spconv
 easydict
-# chumpy
-# lang_sam
+
 gradio
 litserve==0.2.3
 pydantic==2.9.2
@@ -23,9 +22,8 @@ uvloop==0.20.0
 spectacularAI==1.35.0
 progress==1.6.1
 
-# promptDA
 # lingbot-depth
-# xformers==0.0.28
+xformers==0.0.28
 0.0.27.post2
 lightning 
 imageio>=2.33.1
@@ -36,7 +34,8 @@ tqdm
 ipdb
 transformers
 termcolor
-numpy==1.26.4
+# numpy==1.26.4
+numpy==1.23.1
 opencv-python 
 scipy==1.16.1
 matplotlib
@@ -65,26 +64,6 @@ smplx
 natsort
 setuptools==57.0.0
 
-#
 hydra-core
 accelerate
 prettytable
-
-# human3r
-
-# conda install 'llvm-openmp<16'
-# for training logging
-# conda install -y gcc_linux-64 gxx_linux-64
-# pip install git+https://github.com/nerfstudio-project/gsplat.git
-# # for evaluation
-# pip install evo
-# pyvista==0.42.3
-# spaces==0.19.4
-# git+https://github.com/mattloper/chumpy@9b045ff5d6588a24a0bab52c83f032e2ba433e17
-# huggingface-hub[torch]>=0.22
-# pyglet<2
-# h5py
-
-# # tram
-# loguru
-# tensorboard

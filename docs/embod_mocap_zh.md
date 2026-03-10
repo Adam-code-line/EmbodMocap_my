@@ -118,40 +118,6 @@ python run_stages.py seq_info.xlsx --data_root /path/to/data --config config_fas
 - HuggingFace：[EmbodMocap_release](https://huggingface.co/datasets/WenjiaWang/EmbodMocap_release)
 - OneDrive：[EmbodMocap OneDrive Data](https://connecthkuhk-my.sharepoint.com/:f:/g/personal/wwj2022_connect_hku_hk/IgAh_tLK24aLT61TePApWqk1AdpvlVBHvyttzmO61fegoC0?e=ikzCTO)
 
-手动下载时，推荐下载以下文件：
-
-- `dataset_demo.tar` + `release_demo.xlsx`
-  - 小型 demo 数据包
-  - 包含 2 个 scene、4 个 seq
-  - 适合安装验证和快速试跑
-- `dataset_release.tar` + `release.xlsx`
-  - 完整发布数据包
-  - 包含 25 个 scene、105 个 seq
-  - 适合完整 benchmark 或主实验
-
-手动解压后的推荐目录结构：
-
-```text
-datasets/
-├── dataset_demo/
-│   └── ...
-├── dataset_release/
-│   └── ...
-├── release_demo.xlsx
-└── release.xlsx
-```
-
-手动解压后可直接使用如下命令：
-
-```bash
-# demo
-cd embod_mocap
-python run_stages.py ../datasets/release_demo.xlsx --data_root ../datasets/dataset_demo --config config.yaml --steps 1-15 --mode overwrite
-
-# 完整发布数据
-python run_stages.py ../datasets/release.xlsx --data_root ../datasets/dataset_release --config config.yaml --steps 1-15 --mode overwrite
-```
-
 </details>
 
 ## 文件布局
@@ -188,7 +154,7 @@ EmbodMocap/
 │           ├── metadata.json（原始文件）
 │           ├── seq0/
 │           │   ├── recording_2026-01-25_17-51-07.zip（iPhone A 原始文件）
-│           │   ├── recording_2026-01-25_17-53-42.zip（iPhone B 原始文件）
+│           │   ├── recording_2026-01-25_17-51-08.zip（iPhone B 原始文件）
 │           │   ├── raw1/
 │           │   │   ├── data.mov（原始文件）
 │           │   │   ├── data.jsonl（原始文件）

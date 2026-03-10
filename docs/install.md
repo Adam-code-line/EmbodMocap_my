@@ -2,7 +2,7 @@
 
 **Language / 语言切换:** [English](install.md) | [中文](install_zh.md)
 
-This guide covers the open-source main pipeline setup and required dependencies/checkpoints.
+This guide covers the open-source main pipeline setup and the required dependencies / checkpoints.
 
 ## 1) Clone Repository
 
@@ -24,7 +24,7 @@ conda create -n embodmocap python=3.11 -y
 conda activate embodmocap
 ```
 
-Install PyTorch according to your CUDA runtime (give two examples here):
+Install PyTorch according to your CUDA runtime. Two examples are shown below:
 
 ```bash
 # CUDA 12.4 example
@@ -45,9 +45,9 @@ pip install -e embod_mocap
 
 Third-party dependencies are managed as Git submodules rather than vendored code.
 
-The submoudles are added by:
+The submodules can be added with:
 
-```
+```bash
 cd embodmocap
 git submodule add https://github.com/luca-medeiros/lang-segment-anything thirdparty/lang_sam
 git submodule add https://github.com/Robbyant/lingbot-depth thirdparty/lingbot_depth
@@ -70,27 +70,46 @@ pip install -e embod_mocap/thirdparty/ViTPose
 
 ## 5) COLMAP
 
-https://colmap.github.io/install.html
+COLMAP install guide:
 
-I worked with `apt install colmap`
+- [COLMAP Installation Guide](https://colmap.github.io/install.html)
+
+In our setup, installing COLMAP with the system package manager worked well:
+
+```bash
+sudo apt install colmap
+```
 
 ## 6) Other Dependencies
 
-### torch-scatter (for selected training/eval paths)
+### [torch-scatter](https://github.com/rusty1s/pytorch_scatter) (for selected training/eval paths)
 
 ```bash
 pip install torch-scatter -f https://data.pyg.org/whl/torch-2.7.0+cu128.html
 ```
 
-### pytorch3d(optional, render camera space)
+### [pytorch3d](https://github.com/facebookresearch/pytorch3d) (optional, for camera-space rendering)
+
+Choose a pytorch3d package that matches your CUDA / PyTorch setup. For example, you can download a package from the [Tsinghua mirror](https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/pytorch3d/linux-64/) and then install it locally. The rendering wrapper used in this project is [torch3d_render](https://github.com/WenjiaWang0312/torch3d_render.git).
 
 ```bash
 conda install -c iopath iopath
 conda install -c bottler nvidiacub
-# choose an appropriate pytorch3d package for your CUDA/PyTorch, e.g. from https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/pytorch3d/linux-64/, and use
 conda install --use-local xxx.tar.bz2
 pip install git+https://github.com/WenjiaWang0312/torch3d_render.git
 ```
+
+### Custom downloads (optional)
+
+If you prefer to manually choose individual downloads instead of using the bundled scripts, the original checkpoint and COLMAP vocab tree sources are listed below:
+
+- [VGGT model checkpoint](https://huggingface.co/facebook/VGGT-1B/resolve/main/model.pt)
+- [SAM2.1 Hiera Large checkpoint](https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_large.pt)
+- [SAM2.1 Hiera Small checkpoint](https://dl.fbaipublicfiles.com/segment_anything_2/092824/sam2.1_hiera_small.pt)
+- [VIMO checkpoint (Google Drive)](https://drive.google.com/file/d/1fdeUxn_hK4ERGFwuksFpV_-_PHZJuoiW/view?usp=share_link)
+- [YOLOv8x checkpoint (Google Drive)](https://drive.google.com/uc?id=1zJ0KP23tXD42D47cw1Gs7zE2BA_V_ERo&export=download&confirm=t)
+- [ViTPose-H Multi-COCO checkpoint (Google Drive)](https://drive.google.com/uc?id=1xyF7F3I7lWtdq82xmEPVQ5zl4HaasBso&export=download&confirm=t)
+- [COLMAP releases](https://github.com/colmap/colmap/releases/) for vocab tree files
 
 ## 7) Troubleshooting
 
@@ -98,19 +117,19 @@ pip install git+https://github.com/WenjiaWang0312/torch3d_render.git
 
 #### Installation
 
-- https://github.com/colmap/colmap/issues/2464
+- [COLMAP issue #2464](https://github.com/colmap/colmap/issues/2464)
 
 #### `No CMAKE_CUDA_COMPILER could be found`
 
-- https://github.com/jetsonhacks/buildLibrealsense2TX/issues/13
+- [jetsonhacks/buildLibrealsense2TX issue #13](https://github.com/jetsonhacks/buildLibrealsense2TX/issues/13)
 
 #### `FAILED: src/colmap/mvs/CMakeFiles/xxx`
 
-- https://github.com/colmap/colmap/issues/2091
+- [COLMAP issue #2091](https://github.com/colmap/colmap/issues/2091)
 
 #### `libcudart.so` error
 
-- https://github.com/vllm-project/vllm/issues/1369
+- [vllm issue #1369](https://github.com/vllm-project/vllm/issues/1369)
 - Example:
 
 ```bash
@@ -121,7 +140,7 @@ export LD_LIBRARY_PATH=/home/wwj/miniconda3/envs/droidenv/lib/:$LD_LIBRARY_PATH
 
 For COLMAP registration and localization issues, see:
 
-- https://colmap.github.io/faq.html#register-localize-new-images-into-an-existing-reconstruction
+- [COLMAP FAQ: Register / localize new images into an existing reconstruction](https://colmap.github.io/faq.html#register-localize-new-images-into-an-existing-reconstruction)
 
 ### NumPy
 
@@ -138,7 +157,7 @@ pip install git+https://github.com/mattloper/chumpy
 Try:
 
 ```bash
-pip install numpy==1.26.4
+pip install numpy==1.23.1
 ```
 
 You may also need:
@@ -153,12 +172,6 @@ Example error:
 
 ```text
 ValueError: numpy.dtype size changed, may indicate binary incompatibility. Expected 96 from C header, got 88 from PyObject.
-```
-
-Recommended version:
-
-```ini
-numpy==1.26.4
 ```
 
 ### Isaac Gym
