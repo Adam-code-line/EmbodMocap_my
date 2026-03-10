@@ -48,7 +48,7 @@ Third-party dependencies are managed as Git submodules rather than vendored code
 The submodules can be added with:
 
 ```bash
-cd embodmocap
+cd embod_mocap
 git submodule add https://github.com/luca-medeiros/lang-segment-anything thirdparty/lang_sam
 git submodule add https://github.com/Robbyant/lingbot-depth thirdparty/lingbot_depth
 git submodule add https://github.com/ViTAE-Transformer/ViTPose thirdparty/ViTPose

@@ -100,7 +100,7 @@ checkpoints/
 body_models/
 # mkdocs documentation
 /site
-# embod_mocap/thirdparty
+embod_mocap/thirdparty
 
 # mypy
 .mypy_cache/
