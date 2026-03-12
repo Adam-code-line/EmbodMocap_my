@@ -24,7 +24,9 @@ def load_keyframes_json(folder):
 def generate_masks(image_list, frame_ids, output_dir, prefix,
                    lang_sam_chunk_size=5,
                    lang_sam_sam_type="sam2.1_hiera_small",
-                   lang_sam_sam_ckpt_path=None):
+                   lang_sam_sam_ckpt_path=None,
+                   gdino_model_ckpt_path=None,
+                   gdino_processor_ckpt_path=None):
     os.makedirs(output_dir, exist_ok=True)
     text_prompt = "person."
     selected_imgs = []
@@ -43,6 +45,8 @@ def generate_masks(image_list, frame_ids, output_dir, prefix,
         chunk_size=lang_sam_chunk_size,
         sam_type=lang_sam_sam_type,
         sam_ckpt_path=lang_sam_sam_ckpt_path,
+        gdino_model_ckpt_path=gdino_model_ckpt_path,
+        gdino_processor_ckpt_path=gdino_processor_ckpt_path,
     )
     for img, fid, res in zip(selected_imgs, selected_ids, results):
         out_path = os.path.join(output_dir, f"{prefix}_{fid:04d}.png")
@@ -88,6 +92,8 @@ if __name__ == "__main__":
     parser.add_argument("--lang_sam_chunk_size", type=int, default=5)
     parser.add_argument("--lang_sam_sam_type", type=str, default="sam2.1_hiera_small")
     parser.add_argument("--lang_sam_sam_ckpt_path", type=str, default=None)
+    parser.add_argument("--gdino_model_ckpt_path", type=str, default=None)
+    parser.add_argument("--gdino_processor_ckpt_path", type=str, default=None)
     parser.add_argument("--use_vggt", action="store_true", help="Include vggt keyframes.")
     parser.add_argument("--use_unproj", action="store_true", help="Include unproj keyframes.")
     parser.add_argument("--use_p2p", action="store_true", help="Include p2p keyframes.")
@@ -216,12 +222,16 @@ if __name__ == "__main__":
             lang_sam_chunk_size=args.lang_sam_chunk_size,
             lang_sam_sam_type=args.lang_sam_sam_type,
             lang_sam_sam_ckpt_path=args.lang_sam_sam_ckpt_path,
+            gdino_model_ckpt_path=args.gdino_model_ckpt_path,
+            gdino_processor_ckpt_path=args.gdino_processor_ckpt_path,
         )
         generate_masks(
             raw2_image_list, v2_mask_ids, mask_outdir2, "v2",
             lang_sam_chunk_size=args.lang_sam_chunk_size,
             lang_sam_sam_type=args.lang_sam_sam_type,
             lang_sam_sam_ckpt_path=args.lang_sam_sam_ckpt_path,
+            gdino_model_ckpt_path=args.gdino_model_ckpt_path,
+            gdino_processor_ckpt_path=args.gdino_processor_ckpt_path,
         )
 
     ########## Copy keyframes to keyframe folders (if processing all frames) ##########

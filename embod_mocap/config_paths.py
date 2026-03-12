@@ -17,4 +17,6 @@ PATHS = EasyDict({
     "colmap_vocab_tree_path": f"{_ROOT}/checkpoints/vocab_tree_flickr100K_words32K.bin",
     "lang_sam_sam_type": "sam2.1_hiera_small",
     "lang_sam_sam_ckpt": f"{_ROOT}/checkpoints/sam2.1_hiera_small.pt",
+    "gdino_model_ckpt": f"{_ROOT}/checkpoints/grounding_dino_base",
+    "gdino_processor_ckpt": f"{_ROOT}/checkpoints/grounding_dino_base",
 })

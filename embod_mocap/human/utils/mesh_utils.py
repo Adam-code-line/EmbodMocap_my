@@ -2,21 +2,22 @@ import torch
 import trimesh
 import open3d as o3d
 import numpy as np
-from pytorch3d.renderer import TexturesVertex
-from pytorch3d.structures import Meshes
-from t3drender.render.render_functions import render_rgb, render_depth_perspective, render_flow_perspective, render_segmentation
-from t3drender.render.shaders import SegmentationShader
-from embod_mocap.human.utils.segmentation import body_segmentation
-from pytorch3d.renderer import (
-    MeshRasterizer,
-    RasterizationSettings,
-)
-from pytorch3d.ops import knn_points, sample_farthest_points
-from t3drender.cameras import PerspectiveCameras
-from t3drender.mesh_utils import join_batch_meshes_as_scene
 from collections import defaultdict, deque
 
 import cv2
+
+def _import_pytorch3d():
+    from pytorch3d.renderer import TexturesVertex, MeshRasterizer, RasterizationSettings
+    from pytorch3d.structures import Meshes
+    from pytorch3d.ops import knn_points, sample_farthest_points
+    return TexturesVertex, MeshRasterizer, RasterizationSettings, Meshes, knn_points, sample_farthest_points
+
+def _import_t3drender():
+    from t3drender.render.render_functions import render_rgb, render_depth_perspective, render_flow_perspective, render_segmentation
+    from t3drender.render.shaders import SegmentationShader
+    from t3drender.cameras import PerspectiveCameras
+    from t3drender.mesh_utils import join_batch_meshes_as_scene
+    return render_rgb, render_depth_perspective, render_flow_perspective, render_segmentation, SegmentationShader, PerspectiveCameras, join_batch_meshes_as_scene
 
 def clip_mesh_z_with_colors(mesh, z_max=2.0):
     """
@@ -30,6 +31,7 @@ def clip_mesh_z_with_colors(mesh, z_max=2.0):
     Returns:
     - new_mesh: pytorch3d.structures.Meshes, clipped Meshes object with vertex colors.
     """
+    TexturesVertex, _, _, Meshes, _, _ = _import_pytorch3d()
     verts = mesh.verts_packed()
     faces = mesh.faces_packed()
     if mesh.textures is None or not isinstance(mesh.textures, TexturesVertex):
@@ -53,7 +55,7 @@ def clip_mesh_z_with_colors(mesh, z_max=2.0):
     new_textures = TexturesVertex(verts_features=[new_colors])
 
     new_mesh = Meshes(verts=[new_verts], faces=[new_faces], textures=new_textures)
-    
+
     return new_mesh
 
 
@@ -69,6 +71,8 @@ def get_valid_faces_with_remapped_indices(faces, verts_valid_ids):
 
 
 def vis_smpl_cam(verts, body_model, pred_cam, device, batch_size=30, resolution=(512, 512), verbose=False, image_paths=None, bg_images=None, alpha=0.7):
+    TexturesVertex, _, _, Meshes, _, _ = _import_pytorch3d()
+    render_rgb, _, _, _, _, _, _ = _import_t3drender()
     if image_paths is not None and bg_images is not None:
         assert len(image_paths) == len(bg_images)
     s, tx, ty = pred_cam[:, 0], pred_cam[:, 1], pred_cam[:, 2]
@@ -93,6 +97,8 @@ def vis_smpl_cam(verts, body_model, pred_cam, device, batch_size=30, resolution=
             cv2.imwrite(image_path, img_smp)
 
 def vis_smpl(smpl_verts, body_model, device, cameras, batch_size=30, resolution=(512, 512), verbose=False, image_paths=None, bg_images=None, alpha=0.7):
+    TexturesVertex, _, _, Meshes, _, _ = _import_pytorch3d()
+    render_rgb, _, _, _, _, _, _ = _import_t3drender()
     if image_paths is not None and bg_images is not None:
         assert len(image_paths) == len(bg_images)
     smpl_meshes = Meshes(verts=torch.Tensor(smpl_verts).to(device), faces=torch.Tensor(body_model.faces).to(device)[None].repeat_interleave(len(smpl_verts), dim=0))
@@ -114,6 +120,8 @@ def vis_smpl(smpl_verts, body_model, device, cameras, batch_size=30, resolution=
 
     
 def vis_smpl_scene(smpl_verts, scene_mesh, body_model, device, cameras, lights=None, batch_size=30, resolution=(512, 512), verbose=False, image_paths=None):
+    TexturesVertex, _, _, Meshes, _, _ = _import_pytorch3d()
+    render_rgb, _, _, _, _, _, join_batch_meshes_as_scene = _import_t3drender()
     assert len(smpl_verts) == len(image_paths)
     smpl_meshes = Meshes(verts=torch.Tensor(smpl_verts).to(device), faces=torch.Tensor(body_model.faces).to(device)[None].repeat_interleave(len(smpl_verts), dim=0))
     smpl_meshes.textures = TexturesVertex(torch.ones_like(smpl_meshes.verts_padded()))
@@ -127,12 +135,17 @@ def vis_smpl_scene(smpl_verts, scene_mesh, body_model, device, cameras, lights=N
             cv2.imwrite(image_path, image_tensor)
 
 def render_smpl_depth(verts, body_model, device, f, no_grad=False, resolution=(512, 512)):
+    TexturesVertex, _, _, Meshes, _, _ = _import_pytorch3d()
+    _, render_depth_perspective, _, _, _, _, _ = _import_t3drender()
     meshes = Meshes(verts=torch.Tensor(verts).to(device), faces=torch.Tensor(body_model.faces).to(device)[None].repeat_interleave(len(verts), dim=0))
     meshes.textures = TexturesVertex(torch.ones_like(meshes.verts_padded()))
     image_tensors = render_depth_perspective(meshes, device=device, resolution=resolution, focal_length=f, batch_size=30, no_grad=no_grad, verbose=False)
     return image_tensors
 
 def render_smpl_depth_parts(verts, body_model, device, f, parts, no_grad=False, resolution=(512, 512)):
+    from embod_mocap.human.utils.segmentation import body_segmentation
+    _, _, _, Meshes, _, _ = _import_pytorch3d()
+    _, render_depth_perspective, _, _, _, _, _ = _import_t3drender()
     segger = body_segmentation('smpl')
     valid_vert_ids = []
     for pname in parts:
@@ -143,6 +156,8 @@ def render_smpl_depth_parts(verts, body_model, device, f, parts, no_grad=False, 
     return image_tensors
 
 def render_smpl_flow(verts_source, verts_target, body_model, device, f, no_grad=False, resolution=(512, 512)):
+    _, _, _, Meshes, _, _ = _import_pytorch3d()
+    _, _, render_flow_perspective, _, _, _, _ = _import_t3drender()
     meshes_source = Meshes(verts=torch.Tensor(verts_source).to(device), faces=torch.Tensor(body_model.faces).to(device)[None].repeat_interleave(len(verts_source), dim=0))
     meshes_target = Meshes(verts=torch.Tensor(verts_target).to(device), faces=torch.Tensor(body_model.faces).to(device)[None].repeat_interleave(len(verts_target), dim=0))
     hfov = 2 * torch.arctan(1/f) * 180 / torch.pi
@@ -150,6 +165,9 @@ def render_smpl_flow(verts_source, verts_target, body_model, device, f, no_grad=
     return image_tensors
 
 def get_smpl_visbile_verts(verts, body_model, device, focal_length, human_mask, parts=None, resolution=(512, 512)):
+    from embod_mocap.human.utils.segmentation import body_segmentation
+    TexturesVertex, MeshRasterizer, RasterizationSettings, Meshes, _, _ = _import_pytorch3d()
+    _, _, _, _, SegmentationShader, PerspectiveCameras, _ = _import_t3drender()
     rasterizer = MeshRasterizer(
         raster_settings=RasterizationSettings(
             image_size=resolution,
@@ -185,7 +203,7 @@ def get_smpl_visbile_verts(verts, body_model, device, focal_length, human_mask, 
     pix_to_face = fragments.pix_to_face.squeeze()
     pix_to_face = pix_to_face * valid_mask + (-1) * (~valid_mask)
     visible_verts_per_mesh = []
-    
+
     faces = meshes.faces_padded()[0]
     verts_left = meshes.verts_padded()
     face_offsets = meshes.mesh_to_faces_packed_first_idx()
@@ -201,9 +219,9 @@ def get_smpl_visbile_verts(verts, body_model, device, focal_length, human_mask, 
 def filter_and_sample_points(points, num_points, method="random", k=5, percentage=0.1):
     """
     Remove outliers from a point cloud and retain a specified number of points.
-    
+
     Args:
-        points (torch.Tensor): Input point cloud of shape (N, D), where N is the number of points 
+        points (torch.Tensor): Input point cloud of shape (N, D), where N is the number of points
                                and D is the dimension (usually 3 for 3D coordinates).
         num_points (int): The desired number of points to retain after outlier removal.
         method (str): Sampling method, supports "fps" (farthest point sampling) or "random" (random sampling).
@@ -213,26 +231,27 @@ def filter_and_sample_points(points, num_points, method="random", k=5, percentag
     Returns:
         torch.Tensor: The filtered and downsampled point cloud of shape (num_points, D).
     """
+    _, _, _, _, knn_points, sample_farthest_points = _import_pytorch3d()
     if points.ndimension() != 2:
         raise ValueError("points must be a 2D tensor with shape (N, D).")
     N, D = points.shape
     if N <= num_points: # random sample to num_points
         points = points[torch.randint(0, N, (num_points*1.2,))]
-    
+
     if method not in ["fps", "random"]:
         raise ValueError("method must be one of ['fps', 'random'].")
 
     point_cloud = points.unsqueeze(0)  # shape: (1, N, 3)
-    
+
     knn_result = knn_points(point_cloud, point_cloud, K=k)
     distances = knn_result.dists.squeeze(0)  # shape: (N, k)
-    
+
     mean_distances = distances[:, 1:].mean(dim=1)  # shape: (N,)
-    
-    num_points_to_keep = int((1 - percentage) * point_cloud.size(1)) 
-    _, sorted_indices = torch.sort(mean_distances)  
-    inlier_indices = sorted_indices[:num_points_to_keep]  
-    
+
+    num_points_to_keep = int((1 - percentage) * point_cloud.size(1))
+    _, sorted_indices = torch.sort(mean_distances)
+    inlier_indices = sorted_indices[:num_points_to_keep]
+
     points_filtered = point_cloud.squeeze(0)[inlier_indices]
     # Step 2: Downsample the point cloud
     if points_filtered.shape[0] < num_points:

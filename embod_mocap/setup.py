@@ -9,8 +9,9 @@ setup(
     license="Apache-2.0",
     url="https://github.com/your-repo/my_project", 
     packages=find_packages(
-        where=".",  
+        where="..",
     ),
+    package_dir={"": ".."},
     python_requires=">=3.10",
     classifiers=[
         "Development Status :: 4 - Beta",

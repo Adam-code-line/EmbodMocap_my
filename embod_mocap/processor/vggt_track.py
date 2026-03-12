@@ -162,7 +162,7 @@ def vggt_track_pair(image_pair_names, mask_pair_names, depth_pair_names=None, nu
         for i in range(len(track_v2_all)):
             x, y = int(track_v2_all[i, 0].item()), int(track_v2_all[i, 1].item())
             if 0 <= x < orig_w and 0 <= y < orig_h:
-                mask_valid_v2.append(mask2_original[y, x] > 127)
+                mask_valid_v2.append(bool(mask2_original[y, x] > 127))
             else:
                 mask_valid_v2.append(False)
         

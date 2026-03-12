@@ -16,10 +16,12 @@ fi
  
  colmap feature_extractor \
      --database_path $scene_path/colmap/database.db \
-     --image_path $scene_path/colmap/images
- 
+     --image_path $scene_path/colmap/images \
+     --SiftExtraction.use_gpu 0
+
  colmap exhaustive_matcher \
-     --database_path $scene_path/colmap/database.db
+     --database_path $scene_path/colmap/database.db \
+     --SiftMatching.use_gpu 0
  
  colmap point_triangulator \
      --database_path $scene_path/colmap/database.db \

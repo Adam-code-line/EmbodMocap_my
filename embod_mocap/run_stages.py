@@ -1024,6 +1024,8 @@ def full_steps(xlsx_path, data_root, config, steps):
                 lang_sam_cfg = config_step[10].lang_sam
                 lang_sam_sam_type = lang_sam_cfg.sam_type or PATHS.lang_sam_sam_type
                 lang_sam_sam_ckpt = lang_sam_cfg.sam_ckpt_path or PATHS.lang_sam_sam_ckpt
+                gdino_model_ckpt = lang_sam_cfg.get('gdino_model_ckpt_path') or PATHS.get('gdino_model_ckpt')
+                gdino_processor_ckpt = lang_sam_cfg.get('gdino_processor_ckpt_path') or PATHS.get('gdino_processor_ckpt')
                 use_vggt = config_step[14].vggt_track
                 use_unproj = config_step[14].get('chamfer', False)
                 use_p2p = config_step[14].get('p2p', False)
@@ -1036,6 +1038,8 @@ def full_steps(xlsx_path, data_root, config, steps):
                     lang_sam_chunk_size=config_step[10].lang_sam_chunk_size,
                     lang_sam_sam_type=lang_sam_sam_type,
                     lang_sam_sam_ckpt_path=lang_sam_sam_ckpt,
+                    gdino_model_ckpt_path=gdino_model_ckpt,
+                    gdino_processor_ckpt_path=gdino_processor_ckpt,
                     use_vggt=use_vggt,
                     use_unproj=use_unproj,
                     use_p2p=use_p2p,

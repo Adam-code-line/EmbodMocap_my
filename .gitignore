@@ -133,6 +133,9 @@ demo/
 !assets/
 !assets/**
 !assets/viser.gif
+# docs/assets 例外：允许提交截图与演示视频
+!docs/assets/
+!docs/assets/**
 # Resources as exception
 !resources/*
 *.tar.gz
@@ -147,3 +150,7 @@ demo/
 *DS_Store*
 # git
 *.orig
+
+# Claude Code project files
+CLAUDE.md
+SKILL.md
