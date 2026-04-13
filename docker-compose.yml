@@ -1,0 +1,45 @@
+# ============================================================
+# docker-compose.yml — EmbodMocap
+# 使用方法：docker compose up -d 或 docker compose run --rm embodmocap bash
+# ============================================================
+
+services:
+  embodmocap:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: embodmocap:latest
+    container_name: embodmocap_run
+
+    # GPU 支持（需要宿主机安装 nvidia-container-toolkit）
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+    # 挂载：checkpoints、body_models、datasets（不打包进镜像）
+    volumes:
+      # ⚠️ 修改左侧路径为宿主机实际绝对路径
+      - /home/wubin/EmbodMocap_dev/checkpoints:/workspace/EmbodMocap_dev/checkpoints:ro
+      - /home/wubin/EmbodMocap_dev/body_models:/workspace/EmbodMocap_dev/body_models:ro
+      - /home/wubin/EmbodMocap_dev/datasets:/workspace/EmbodMocap_dev/datasets
+      # 输出目录（可写）
+      - /home/wubin/EmbodMocap_dev/datasets:/workspace/EmbodMocap_dev/datasets:rw
+
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      # COLMAP 运行时库路径
+      - LD_LIBRARY_PATH=/opt/conda/lib
+
+    # 保持容器运行（用于交互式调试）
+    stdin_open: true
+    tty: true
+
+    working_dir: /workspace/EmbodMocap_dev/embod_mocap
+
+    # 默认命令（可通过 docker compose run 覆盖）
+    command: /bin/bash

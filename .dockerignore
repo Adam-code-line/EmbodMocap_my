@@ -1,0 +1,47 @@
+# ============================================================
+# .dockerignore — EmbodMocap Docker 构建排除清单
+# 原则：checkpoints 和大型数据文件不打包进镜像，通过 volume 挂载
+# ============================================================
+
+# ---------- 大型模型文件（通过 volume 挂载）----------
+checkpoints/
+body_models/
+datasets/
+
+# ---------- 输出与缓存 ----------
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.cache/
+**/*.egg-info/
+**/dist/
+**/build/
+**/.pytest_cache/
+
+# ---------- Git 相关 ----------
+.git/
+.gitmodules
+
+# ---------- 开发工具 ----------
+.vscode/
+.idea/
+**/.ipynb_checkpoints/
+*.swp
+*.swo
+
+# ---------- 文档与资源（可选排除以减小镜像）----------
+assets/
+docs/
+*.md
+!README.md
+
+# ---------- 杂项 ----------
+pip_freeze.txt
+push.log
+**/*.tar.gz
+**/*.tar.bz2
+
+# ---------- vendor 目录 ----------
+# COPY . 时排除 vendor/，避免与 Dockerfile 中具名 COPY 产生重复
+# ⚠️ 具名 COPY（如 COPY vendor/mmcv-1.7.2 /opt/third_src/...）不受此影响，仍正常工作
+vendor/

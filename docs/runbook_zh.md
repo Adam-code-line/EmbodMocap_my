@@ -219,32 +219,70 @@ pip install -e embod_mocap
 
 目录：`/home/wubin/EmbodMocap_dev/checkpoints/`
 
-| 文件 | 大小 | 状态 | 来源 |
-|------|------|------|------|
-| `vggt.pt` | — | ✅ | HuggingFace |
-| `sam2.1_hiera_large.pt` | — | ✅ | Meta |
-| `sam2.1_hiera_small.pt` | — | ✅ | Meta |
-| `vimo_checkpoint.pth.tar` | — | ✅ | VIMO 项目 |
-| `yolov8x.pt` | — | ✅ | ultralytics（自动下载） |
-| `vitpose-h-multi-coco.pth` | — | ✅ | ViTPose |
-| `vocab_tree_flickr100K_words32K.bin` | — | ✅ | COLMAP |
-| `lingbot_depth_vitl14.pt` | 1.28 GB | ✅ | lingbot_depth 仓库 |
-| `grounding_dino_base/`（目录） | ~891 MB | ✅ | hf-mirror 手动下载（见问题 13） |
+绝大多数 checkpoint 已打包至 `WenjiaWang/EmbodMocap_release` 的 `ckpt_lazypack.tar`（12.8GB），一次下载解压即可：
 
 ```bash
 mkdir -p /home/wubin/EmbodMocap_dev/checkpoints
-# 所有路径由 embod_mocap/config_paths.py 统一管理
+cd /home/wubin/EmbodMocap_dev/checkpoints
+
+# 下载并解压 lazypack（含除 grounding_dino_base 外的全部 checkpoints）
+wget -c "https://hf-mirror.com/datasets/WenjiaWang/EmbodMocap_release/resolve/main/ckpt_lazypack.tar"
+tar -xf ckpt_lazypack.tar
+```
+
+解压后包含：
+
+| 文件 | 大小 |
+|------|------|
+| `vggt.pt` | 4.7GB |
+| `vimo_checkpoint.pth.tar` | 2.6GB |
+| `vitpose-h-multi-coco.pth` | 2.4GB |
+| `lingbot_depth_vitl14.pt` | 1.28GB |
+| `sam2.1_hiera_large.pt` | 857MB |
+| `sam2.1_hiera_small.pt` | 176MB |
+| `yolov8x.pt` | 131MB |
+| `vocab_tree_flickr100K_words32K.bin` | 15MB |
+| `vocab_tree_flickr100K_words1M.bin` | — |
+
+**仍需单独下载**：`grounding_dino_base/`（Step 10 必需，见问题 13）：
+
+```bash
+mkdir -p /home/wubin/EmbodMocap_dev/checkpoints/grounding_dino_base
+cd /home/wubin/EmbodMocap_dev/checkpoints/grounding_dino_base
+
+for f in model.safetensors config.json preprocessor_config.json \
+          tokenizer.json tokenizer_config.json special_tokens_map.json vocab.txt; do
+    wget -c "https://hf-mirror.com/IDEA-Research/grounding-dino-base/resolve/main/$f"
+done
 ```
 
 ### Step 13：准备 body_models
 
+所有文件均可从 HuggingFace `WenjiaWang/EmbodMocap_release` 直接下载，无需额外申请：
+
+```bash
+mkdir -p /home/wubin/EmbodMocap_dev/body_models/smpl
+cd /home/wubin/EmbodMocap_dev/body_models/smpl
+
+# 使用 hf-mirror（国内镜像，无需代理）
+HF_BASE=https://hf-mirror.com/datasets/WenjiaWang/EmbodMocap_release/resolve/main
+
+wget ${HF_BASE}/SMPL_NEUTRAL.pkl
+wget ${HF_BASE}/J_regressor_extra.npy
+wget ${HF_BASE}/J_regressor_h36m.npy
+wget ${HF_BASE}/smpl_mean_params.npz
+wget ${HF_BASE}/mesh_downsampling.npz
+```
+
+下载完成后目录结构：
+
 ```
 /home/wubin/EmbodMocap_dev/body_models/smpl/
-├── SMPL_NEUTRAL.pkl          # 从 https://smpl.is.tue.mpg.de/ 申请下载
-├── J_regressor_extra.npy     # VIBE/VIMO 开源代码附带
-├── J_regressor_h36m.npy
-├── smpl_mean_params.npz
-└── mesh_downsampling.npz
+├── SMPL_NEUTRAL.pkl          ✅
+├── J_regressor_extra.npy     ✅
+├── J_regressor_h36m.npy      ✅
+├── smpl_mean_params.npz      ✅
+└── mesh_downsampling.npz     ✅
 ```
 
 ---
@@ -782,6 +820,8 @@ mask_valid_v2.append(bool(mask2_original[y, x] > 127))
 | 2026-03-11 | 安装 xformers 0.0.27.post2，解决 Step 10 xFormers 断言失败 | Step 10 依赖满足 | wubin |
 | 2026-03-12 | 发现 Step 10 Grounding DINO 模型联网拉取失败；手动下载 `grounding_dino_base/` 到 `checkpoints/`，修复三处代码传参链（config_paths.py / process_depth_mask.py / run_stages.py） | Step 10 实测跑通，seq0/seq12 各生成 85/92/94 个 masks_keyframe | wubin |
 | 2026-03-12 | 修复 Step 11 `vggt_track.py:165` numpy 2.x 兼容问题（`mask2_original[y,x]>127` 改为 `bool(...)`） | Step 11 实测跑通，4 个序列各约 19s，生成 vggt_tracks.npz | wubin |
+| 2026-03-13 | 开始 Docker 打包工作：编写 Dockerfile / docker-compose.yml / .dockerignore / scripts/prepare_docker_build.sh，撰写 docs/docker_guide_zh.md | 文件创建完毕，vendor/torch3d_render 已准备好；因 wubin 不在 docker 用户组，需在用户终端手动执行 `docker build` | wubin |
+| 2026-03-13 | 确认 Checkpoint 分发策略：`vimo_checkpoint.pth.tar`（2.6GB）和 `lingbot_depth_vitl14.pt`（1.28GB）需上传到 HuggingFace `WenjiaWang/EmbodMocap_release`；其余 checkpoints 用户可从公开来源自行获取；SMPL body_models 因版权限制不可转发 | 待执行上传 | wubin |
 
 ---
 
@@ -790,5 +830,8 @@ mask_valid_v2.append(bool(mask2_original[y, x] > 127))
 - [x] Step 10 完整跑通验证（2026-03-12，seq0/seq12 均通过，masks_keyframe/ 正常输出）
 - [x] Step 11 完整跑通验证（2026-03-12，修复 vggt_track.py numpy.bool_ 兼容问题后，4 个序列全部生成 vggt_tracks.npz）
 - [x] Steps 1-15 全量验证（2026-03-12，check 命令显示 4 seq success, 0 failed, 0 unfinished）
+- [x] Docker 打包文件编写完成（2026-03-13，Dockerfile / docker-compose.yml / docs/docker_guide_zh.md）
+- [ ] 执行 `docker build` 验证镜像可成功构建（需在用户终端运行，wubin 需在 docker 组）
+- [ ] 上传 `vimo_checkpoint.pth.tar` 和 `lingbot_depth_vitl14.pt` 到 HuggingFace（需有网络访问 hf-mirror.com）
 - [ ] COLMAP 是否可升级为带 CUDA 版本以加速 Step 2/3
 - [ ] `vocab_tree_faiss_flickr100K_words1M.bin` 是否必要（目前用 32K 版本，可选）
