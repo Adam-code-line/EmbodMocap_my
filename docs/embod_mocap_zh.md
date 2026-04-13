@@ -79,6 +79,20 @@ datasets/
 
 建议在 `embod_mocap/` 目录中执行：
 
+若在新环境中遇到 `ModuleNotFoundError: No module named 'embod_mocap'`，先在仓库根目录执行：
+
+```bash
+cd /path/to/EmbodMocap
+python -m pip install -e ./embod_mocap
+```
+
+若继续报 `ModuleNotFoundError: No module named 'torch'`、`No module named 'imageio'` 或 `No module named 'huggingface_hub'`，补齐最小依赖：
+
+```bash
+cd /path/to/EmbodMocap/embod_mocap
+python -m pip install torch imageio pandas openpyxl pyyaml tqdm easydict huggingface_hub safetensors einops timm hydra-core accelerate
+```
+
 ```bash
 cd embod_mocap
 

@@ -190,6 +190,9 @@ python run_stages.py seq_info.xlsx --data_root ../datasets/my_capture --config c
 
 若仍需追根，可对本地与服务器执行同一组哈希、`ffprobe` 与版本信息对齐，判断是否存在“同名但非同文件”或二进制差异。
 
+> 版本 A/B 与回退的完整操作清单见：
+> [docs/sai_version_ab_test_and_rollback_zh.md](./sai_version_ab_test_and_rollback_zh.md)
+
 ## 当前状态
 
 1. 服务器上 `scene_20260413_161617` 的 Step1 在当前数据条件下仍 blocked。
