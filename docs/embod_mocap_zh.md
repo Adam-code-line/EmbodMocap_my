@@ -69,9 +69,11 @@ datasets/
             └── recording_2026-01-25_18-10-11(1).zip
 ```
 
-保留原始 zip 文件名即可。后续脚本会自动解压，并将两个视角整理/重命名为 `raw1/` 和 `raw2/`。
+请注意：当前 `run_stages.py` 不会自动解压 zip。运行主流程前，需要先保证每个 `seq*` 目录内存在可用的 `raw1/`、`raw2/` 目录（且目录内包含 `data.mov`、`data.jsonl`、`calibration.json`、`metadata.json`、`frames2/`）。
 
-这两个录制 zip 应该来自同一次采集，因此时间戳通常会非常接近，甚至可能相同。
+若你手里是 `recording_*.zip`，请先手动解压并整理为 `raw1/`、`raw2/`，再执行 Step 4。
+
+这两个录制文件应来自同一次采集，因此时间戳通常会非常接近，甚至可能相同。
 
 时序对齐方面，我们采集时会用激光笔作为同步信号。在 step 6 之前，请先检查 `raw1/` 和 `raw2/` 中解压出来的图像，找到各自画面里激光光斑消失的那一帧，并将对应帧号填写到 xlsx 的 `v1_start` 和 `v2_start`。你也可以用类似的同步方案，例如手电筒、手机闪光灯等明显的瞬时光信号。
 
@@ -197,7 +199,7 @@ EmbodMocap/
 - 将 checkpoints 放在 `checkpoints/`。
 - 将 SMPL/SMPL-X body-model 资产放在 `body_models/`。
 - 将捕获的 scene 放在 `datasets/` 下，并将该根目录传递给 `--data_root`。
-- 对于自己采集的数据，只需要把两个 `recording_*.zip` 放进每个 `seq*` 文件夹；脚本会自动整理成 `raw1/` 和 `raw2/`。
+- 对于自己采集的数据，建议在运行前先将两个录制源手动整理为 `raw1/`、`raw2/`；不要依赖自动解压。
 
 </details>
 

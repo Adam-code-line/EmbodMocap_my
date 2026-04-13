@@ -119,7 +119,8 @@ python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --config "$CFG" --steps 2-
 补充说明（常见坑）：
 
 1. 如果在 `embodmocap_sai150` 中运行 `run_stages.py --steps 1` 报 `ModuleNotFoundError`（例如 `torch`、`imageio`、`huggingface_hub`），这是因为 `run_stages.py` 导入链会加载 `processor/base.py` 与 `lingbot_depth`，其模块级依赖较多。
-2. 处理方式二选一：
+2. 如果在 Step4/Step5 报 `NotADirectoryError: .../seq0/raw1/data.jsonl` 或 `.../raw1/data.mov: Not a directory`，通常是 `raw1`/`raw2` 被创建成“文件”而不是目录（常见于把 `recording_*.zip` 直接重命名成 `raw1/raw2`）。
+3. 处理方式二选一：
    - 方式 A（推荐，最小依赖）：在 `embodmocap_sai150` 里直接批量执行 `sai-cli process` 完成 Step1；
   - 方式 B：给 `embodmocap_sai150` 补齐 `run_stages.py` 所需最小依赖后再运行。
 
