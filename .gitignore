@@ -157,3 +157,7 @@ SKILL.md
 
 # Docker build vendor（非 git 管理的第三方源码，由 scripts/prepare_docker_build.sh 生成）
 vendor/
+
+# Docs
+docs/*data*
+docs/*scene*
