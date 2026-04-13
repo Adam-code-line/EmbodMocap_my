@@ -908,16 +908,52 @@ def full_steps(xlsx_path, data_root, config, steps):
             ################ step 4: preprocess frames from each sequence in raw1 and raw2 #################
             if 4 in steps:
                 print(f"\n==== Step 4, Get frames from videos for {scene_folder} {seq_name}")
+
+                raw1_path = os.path.join(scene_folder, seq_name, 'raw1')
+                raw2_path = os.path.join(scene_folder, seq_name, 'raw2')
+
+                # Guard against a common data-shape issue where raw1/raw2 are files
+                # (often renamed zip archives) instead of directories.
+                if os.path.exists(raw1_path) and not os.path.isdir(raw1_path):
+                    raise NotADirectoryError(
+                        f"{raw1_path} exists but is not a directory. "
+                        "Please extract recording zip into raw1/ first."
+                    )
+                if os.path.exists(raw2_path) and not os.path.isdir(raw2_path):
+                    raise NotADirectoryError(
+                        f"{raw2_path} exists but is not a directory. "
+                        "Please extract recording zip into raw2/ first."
+                    )
             
-                if not os.path.exists(os.path.join(scene_folder, seq_name, 'raw1')):
-                    exist_folders = os.listdir(os.path.join(scene_folder, seq_name))
-                    assert len(exist_folders) == 2 and exist_folders[0].startswith('recording_') and exist_folders[1].startswith('recording_')
-                    os.rename(os.path.join(scene_folder, seq_name, exist_folders[0]), os.path.join(scene_folder, seq_name, 'raw1'))
-                    os.rename(os.path.join(scene_folder, seq_name, exist_folders[1]), os.path.join(scene_folder, seq_name, 'raw2'))
+                if not os.path.exists(raw1_path):
+                    seq_dir = os.path.join(scene_folder, seq_name)
+                    exist_items = sorted(os.listdir(seq_dir))
+                    recording_dirs = [
+                        name for name in exist_items
+                        if name.startswith('recording_') and os.path.isdir(os.path.join(seq_dir, name))
+                    ]
+                    recording_zips = [
+                        name for name in exist_items
+                        if name.startswith('recording_') and name.lower().endswith('.zip') and os.path.isfile(os.path.join(seq_dir, name))
+                    ]
+
+                    if len(recording_dirs) == 2:
+                        os.rename(os.path.join(seq_dir, recording_dirs[0]), raw1_path)
+                        os.rename(os.path.join(seq_dir, recording_dirs[1]), raw2_path)
+                    elif len(recording_zips) >= 2:
+                        raise RuntimeError(
+                            f"Found zip inputs in {seq_dir}: {recording_zips}. "
+                            "Please extract them into raw1/ and raw2/ before Step 4."
+                        )
+                    else:
+                        raise RuntimeError(
+                            f"Cannot infer raw inputs in {seq_dir}. "
+                            f"Expected two recording_* directories, got: {exist_items}"
+                        )
                 
-                if not os.path.exists(os.path.join(scene_folder, seq_name, 'raw1')):
+                if not os.path.exists(raw1_path):
                     raise FileNotFoundError(f"raw1 not found in {scene_folder}/{seq_name}")
-                if not os.path.exists(os.path.join(scene_folder, seq_name, 'raw2')):
+                if not os.path.exists(raw2_path):
                     raise FileNotFoundError(f"raw2 not found in {scene_folder}/{seq_name}")
                 
                 vertical_flag = 1 if vertical else 0
