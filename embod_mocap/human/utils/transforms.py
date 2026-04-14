@@ -56,6 +56,34 @@ def interpolate_RT(RT, source_frame_idx, target_frame_idx):
     device = RT.device if is_torch else None
     if is_torch:
         RT = RT.detach().cpu().numpy()
+
+    source_frame_idx = np.asarray(source_frame_idx, dtype=np.int64)
+    target_frame_idx = np.asarray(target_frame_idx, dtype=np.int64)
+
+    if RT.shape[0] != source_frame_idx.shape[0]:
+        raise ValueError(
+            f"RT/frame index size mismatch: len(RT)={RT.shape[0]}, len(source_frame_idx)={source_frame_idx.shape[0]}"
+        )
+
+    # Slerp requires strictly increasing source times.
+    # Normalize indices by stable sort + dedup to tolerate noisy frame_id outputs.
+    if source_frame_idx.shape[0] > 1:
+        order = np.argsort(source_frame_idx, kind="stable")
+        source_frame_idx = source_frame_idx[order]
+        RT = RT[order]
+
+        keep = np.concatenate(([True], np.diff(source_frame_idx) != 0))
+        source_frame_idx = source_frame_idx[keep]
+        RT = RT[keep]
+
+    if source_frame_idx.shape[0] == 0:
+        raise ValueError("No source frames provided for interpolate_RT")
+
+    if source_frame_idx.shape[0] == 1:
+        interpolated_RT = np.repeat(RT[:1], len(target_frame_idx), axis=0).astype(np.float32)
+        if is_torch:
+            interpolated_RT = torch.from_numpy(interpolated_RT).to(device)
+        return interpolated_RT
     
     # Extract rotation matrices and translation vectors
     R_matrices = RT[:, :3, :3]
@@ -76,11 +104,14 @@ def interpolate_RT(RT, source_frame_idx, target_frame_idx):
     target_times = np.array(target_frame_idx)
     interpolated_quaternions = []
     interpolated_translations = np.empty((len(target_frame_idx), 3))
+
+    source_to_idx = {int(t): i for i, t in enumerate(source_frame_idx)}
     
     # Check for overlapping indices and handle interpolation
     for i, t in enumerate(target_times):
-        if t in source_frame_idx:  # Directly use source value if index overlaps
-            idx = np.where(source_frame_idx == t)[0][0]
+        t_int = int(t)
+        if t_int in source_to_idx:  # Directly use source value if index overlaps
+            idx = source_to_idx[t_int]
             interpolated_quaternions.append(quaternions[idx])
             interpolated_translations[i] = T_vectors[idx]
         elif t < source_frame_idx[0]:  # Extrapolate before the first frame
