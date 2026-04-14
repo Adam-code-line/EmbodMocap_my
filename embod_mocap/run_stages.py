@@ -33,11 +33,48 @@ def get_bool_from_excel(row, column, default=False):
     return str(value).upper() in ['TRUE', '1.0']
 
 
+def get_start_frame_from_excel(row, column, default=-1):
+    """Parse start frame index from Excel cells.
+
+    Accepts integers, float-like values (e.g. 0.0), and strings.
+    Returns default for empty/nan/'-' style placeholders.
+    """
+    value = row.get(column, default)
+    if value is None:
+        return default
+
+    try:
+        if pd.isna(value):
+            return default
+    except Exception:
+        pass
+
+    text = str(value).strip()
+    if text == '' or text == '-':
+        return default
+
+    try:
+        parsed = int(float(text))
+    except Exception as exc:
+        raise ValueError(
+            f"Invalid {column} value '{value}'. Please use integer frame index like 0, 15, 128."
+        ) from exc
+
+    return parsed
+
+
 def get_process_flags(seq_path, anchor_files, mode):
     """Get processing flags for v1 and v2 based on mode and existing files"""
     proc_v1 = mode == 'overwrite' or not os.path.exists(os.path.join(seq_path, anchor_files[0]))
     proc_v2 = mode == 'overwrite' or not os.path.exists(os.path.join(seq_path, anchor_files[1]))
     return proc_v1, proc_v2
+
+
+def is_non_empty_dir(path):
+    """Return True only when path exists, is a directory, and has at least one non-hidden entry."""
+    if not os.path.isdir(path):
+        return False
+    return any(not name.startswith('.') for name in os.listdir(path))
 
 def check_slice_views_completion(seq_path, anchor_files, return_details=False):
     """Check if slice_views outputs exist (nested structure)"""
@@ -274,8 +311,8 @@ def check_steps_completion(xlsx_path, config, steps, data_root=None, force_all=F
                     results[step][seq_key] = "FAILED"
                     continue
                 
-                v1_exists = os.path.exists(os.path.join(seq_path, anchor_files[4][0]))
-                v2_exists = os.path.exists(os.path.join(seq_path, anchor_files[4][1]))
+                v1_exists = is_non_empty_dir(os.path.join(seq_path, anchor_files[4][0]))
+                v2_exists = is_non_empty_dir(os.path.join(seq_path, anchor_files[4][1]))
                 results[step][seq_key] = v1_exists and v2_exists
                 
         elif step == 5:
@@ -1058,12 +1095,15 @@ def full_steps(xlsx_path, data_root, config, steps):
                 ensure_raw_input_ready(raw2_path)
                 
                 vertical_flag = 1 if vertical else 0
-                if args.mode == 'overwrite' or not os.path.exists(os.path.join(seq_path, anchor_files[4][0])):
+                raw1_frames_dir = os.path.join(seq_path, anchor_files[4][0])
+                raw2_frames_dir = os.path.join(seq_path, anchor_files[4][1])
+
+                if args.mode == 'overwrite' or not is_non_empty_dir(raw1_frames_dir):
                     run_cmd(f"source processor/get_frames.sh {seq_path} raw1 {config_step[4].down_scale} {vertical_flag}")
                 else:
                     print(f"Skip getting raw1 frames for {scene_folder} {seq_name}")
 
-                if args.mode == 'overwrite' or not os.path.exists(os.path.join(seq_path, anchor_files[4][1])):
+                if args.mode == 'overwrite' or not is_non_empty_dir(raw2_frames_dir):
                     run_cmd(f"source processor/get_frames.sh {seq_path} raw2 {config_step[4].down_scale} {vertical_flag}")
                 else:
                     print(f"Skip getting raw2 frames for {scene_folder} {seq_name}")
@@ -1088,9 +1128,9 @@ def full_steps(xlsx_path, data_root, config, steps):
             ################ step 6: slice views #################
             if 6 in steps:
                 print(f"\n==== Step 6, Slicing views for {scene_folder} {seq_name} ====")
-                v1_start = str(row.get('v1_start', -1))
-                v2_start = str(row.get('v2_start', -1))
-                if int(v1_start) == -1 or int(v2_start) == -1:
+                v1_start = get_start_frame_from_excel(row, 'v1_start', default=-1)
+                v2_start = get_start_frame_from_excel(row, 'v2_start', default=-1)
+                if v1_start == -1 or v2_start == -1:
                     print(f"v1_start or v2_start is not set for {scene_folder} {seq_name}, skipping")
                     continue
 
@@ -1099,12 +1139,26 @@ def full_steps(xlsx_path, data_root, config, steps):
                 if not slice_completed:
                     cmd = build_command_with_flags(
                         f"python processor/slice_views.py {seq_path}",
-                        v1_start=v1_start,
-                        v2_start=v2_start,
+                        v1_start=str(v1_start),
+                        v2_start=str(v2_start),
                         vertical=vertical,
                         jpeg_quality=config_step[6].jpeg_quality,
                     )
                     run_cmd(cmd)
+
+                    # Validate outputs immediately so failures are surfaced at Step 6
+                    # instead of being deferred to Step 8.
+                    is_complete, issues = check_slice_views_completion(
+                        seq_path,
+                        anchor_files[6],
+                        return_details=True,
+                    )
+                    if not is_complete:
+                        raise RuntimeError(
+                            f"Step 6 outputs incomplete for {seq_path}: {issues}. "
+                            "Likely causes: Step 4 raw images missing/empty, or invalid v1_start/v2_start. "
+                            "Please rerun --steps 4,6 with --mode overwrite and verify raw1/images + raw2/images are non-empty."
+                        )
 
                 else:
                     print(f"Skip slicing views for {scene_folder} {seq_name}")
