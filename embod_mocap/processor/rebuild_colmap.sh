@@ -39,6 +39,7 @@ colmap model_converter \
 
 python - "$tmp_txt_dir/images.txt" "$scene_path/colmap/image-list.txt" <<'PY'
 import sys
+from pathlib import Path
 
 images_txt = sys.argv[1]
 out_list = sys.argv[2]
@@ -53,10 +54,16 @@ with open(images_txt, "r", encoding="utf-8") as f:
         if len(parts) < 10:
             continue
         try:
-            int(parts[0])
+            image_id = int(parts[0])
+            int(parts[8])
         except ValueError:
             continue
-        ordered.append((int(parts[0]), parts[9]))
+        image_name = parts[9]
+        # images.txt alternates with a 2D-points line; only keep true header lines.
+        suffix = Path(image_name).suffix.lower()
+        if suffix not in {".jpg", ".jpeg", ".png"}:
+            continue
+        ordered.append((image_id, image_name))
 
 ordered.sort(key=lambda x: x[0])
 seen = set()
