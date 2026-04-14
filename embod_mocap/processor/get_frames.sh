@@ -9,6 +9,10 @@ vf="scale=iw/${down_scale}:ih/${down_scale}"
 if [ "$vertical" = "1" ]; then
     vf="${vf},transpose=1"
 fi
-mkdir ${seq_path}/${view_name}/images
+images_dir="${seq_path}/${view_name}/images"
+mkdir -p "${images_dir}"
 
-ffmpeg -i ${seq_path}/${view_name}/data.mov -r 30 -vf "${vf}" -q:v 5 -start_number 0 ${seq_path}/${view_name}/images/${view_name}_%04d.jpg
+# Ensure deterministic outputs when rerunning Step 4 in overwrite mode.
+rm -f "${images_dir}/${view_name}_"*.jpg
+
+ffmpeg -y -i "${seq_path}/${view_name}/data.mov" -r 30 -vf "${vf}" -q:v 5 -start_number 0 "${images_dir}/${view_name}_%04d.jpg"
