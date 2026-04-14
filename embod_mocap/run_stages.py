@@ -1,6 +1,8 @@
 import sys
 import os
 import shutil
+import tempfile
+import zipfile
 import pandas as pd
 import math
 import argparse
@@ -86,6 +88,79 @@ def check_slice_views_completion(seq_path, anchor_files, return_details=False):
         return len(issues) == 0, issues
     else:
         return len(issues) == 0
+
+def _safe_extract_zip(zip_file, target_dir):
+    """Extract zip members while preventing path traversal."""
+    target_real = os.path.realpath(target_dir)
+    for member in zip_file.infolist():
+        member_name = member.filename
+        if not member_name:
+            continue
+        member_path = os.path.normpath(member_name)
+        destination = os.path.realpath(os.path.join(target_dir, member_path))
+        if not (destination == target_real or destination.startswith(target_real + os.sep)):
+            raise RuntimeError(f"Unsafe path in zip: {member_name}")
+        zip_file.extract(member, target_dir)
+
+def _missing_raw_inputs(raw_dir):
+    return [name for name in raw_files if not os.path.exists(os.path.join(raw_dir, name))]
+
+def _find_recording_payload_root(extract_root):
+    """Find the directory that contains expected recording payload files."""
+    candidates = []
+    for current_root, _, _ in os.walk(extract_root):
+        if not _missing_raw_inputs(current_root):
+            candidates.append(current_root)
+
+    if not candidates:
+        return None
+
+    # Prefer shallower candidate roots (zip root or first nested folder).
+    candidates.sort(key=lambda p: len(os.path.relpath(p, extract_root).split(os.sep)))
+    return candidates[0]
+
+def extract_recording_zip_to_raw(zip_path, raw_dir):
+    """Extract one recording_*.zip into raw1/raw2 style directory."""
+    if os.path.exists(raw_dir):
+        return
+
+    parent_dir = os.path.dirname(raw_dir)
+    temp_extract_root = tempfile.mkdtemp(prefix="recording_unzip_", dir=parent_dir)
+    try:
+        with zipfile.ZipFile(zip_path, 'r') as zip_file:
+            _safe_extract_zip(zip_file, temp_extract_root)
+
+        payload_root = _find_recording_payload_root(temp_extract_root)
+        if payload_root is None:
+            raise RuntimeError(
+                f"Zip payload missing required files {raw_files}: {zip_path}"
+            )
+
+        os.makedirs(raw_dir, exist_ok=False)
+        for name in os.listdir(payload_root):
+            src = os.path.join(payload_root, name)
+            dst = os.path.join(raw_dir, name)
+            shutil.move(src, dst)
+
+        missing = _missing_raw_inputs(raw_dir)
+        if missing:
+            raise RuntimeError(
+                f"After extracting {os.path.basename(zip_path)}, {raw_dir} is missing: {missing}"
+            )
+    finally:
+        shutil.rmtree(temp_extract_root, ignore_errors=True)
+
+def ensure_raw_input_ready(raw_dir):
+    if not os.path.exists(raw_dir):
+        raise FileNotFoundError(f"{raw_dir} not found")
+    if not os.path.isdir(raw_dir):
+        raise NotADirectoryError(f"{raw_dir} exists but is not a directory")
+
+    missing = _missing_raw_inputs(raw_dir)
+    if missing:
+        raise FileNotFoundError(
+            f"{raw_dir} missing required inputs: {missing}"
+        )
 
 def clean_raw_files(raw_path, dry_run=False, dry_run_deleted_paths=None):
     """Clean non-raw files from raw directory"""
@@ -924,9 +999,15 @@ def full_steps(xlsx_path, data_root, config, steps):
                         f"{raw2_path} exists but is not a directory. "
                         "Please extract recording zip into raw2/ first."
                     )
-            
+
+                seq_dir = os.path.join(scene_folder, seq_name)
+                missing_targets = []
                 if not os.path.exists(raw1_path):
-                    seq_dir = os.path.join(scene_folder, seq_name)
+                    missing_targets.append(("raw1", raw1_path))
+                if not os.path.exists(raw2_path):
+                    missing_targets.append(("raw2", raw2_path))
+
+                if missing_targets:
                     exist_items = sorted(os.listdir(seq_dir))
                     recording_dirs = [
                         name for name in exist_items
@@ -937,24 +1018,44 @@ def full_steps(xlsx_path, data_root, config, steps):
                         if name.startswith('recording_') and name.lower().endswith('.zip') and os.path.isfile(os.path.join(seq_dir, name))
                     ]
 
-                    if len(recording_dirs) == 2:
-                        os.rename(os.path.join(seq_dir, recording_dirs[0]), raw1_path)
-                        os.rename(os.path.join(seq_dir, recording_dirs[1]), raw2_path)
-                    elif len(recording_zips) >= 2:
-                        raise RuntimeError(
-                            f"Found zip inputs in {seq_dir}: {recording_zips}. "
-                            "Please extract them into raw1/ and raw2/ before Step 4."
-                        )
-                    else:
+                    selected_sources = []
+                    need_count = len(missing_targets)
+
+                    for source_name in recording_dirs:
+                        selected_sources.append(("dir", source_name))
+                        if len(selected_sources) >= need_count:
+                            break
+
+                    if len(selected_sources) < need_count:
+                        if args.auto_extract_zip:
+                            for source_name in recording_zips:
+                                selected_sources.append(("zip", source_name))
+                                if len(selected_sources) >= need_count:
+                                    break
+                        elif recording_zips:
+                            raise RuntimeError(
+                                f"Found zip inputs in {seq_dir}: {recording_zips}. "
+                                "Zip auto-extraction is disabled (--no_auto_extract_zip). "
+                                "Please extract them into raw1/ and raw2/ before Step 4."
+                            )
+
+                    if len(selected_sources) < need_count:
                         raise RuntimeError(
                             f"Cannot infer raw inputs in {seq_dir}. "
-                            f"Expected two recording_* directories, got: {exist_items}"
+                            f"Need {need_count} source(s), but found dirs={recording_dirs}, zips={recording_zips}."
                         )
-                
-                if not os.path.exists(raw1_path):
-                    raise FileNotFoundError(f"raw1 not found in {scene_folder}/{seq_name}")
-                if not os.path.exists(raw2_path):
-                    raise FileNotFoundError(f"raw2 not found in {scene_folder}/{seq_name}")
+
+                    for (target_name, target_path), (source_kind, source_name) in zip(missing_targets, selected_sources):
+                        source_path = os.path.join(seq_dir, source_name)
+                        if source_kind == "dir":
+                            print(f"[Step4] Using directory {source_name} -> {target_name}/")
+                            os.rename(source_path, target_path)
+                        else:
+                            print(f"[Step4] Auto-extracting {source_name} -> {target_name}/")
+                            extract_recording_zip_to_raw(source_path, target_path)
+
+                ensure_raw_input_ready(raw1_path)
+                ensure_raw_input_ready(raw2_path)
                 
                 vertical_flag = 1 if vertical else 0
                 if args.mode == 'overwrite' or not os.path.exists(os.path.join(seq_path, anchor_files[4][0])):
@@ -1228,6 +1329,11 @@ if __name__ == "__main__":
     parser.add_argument('--check', action='store_true', help='check completion status of specified steps')
     parser.add_argument('--clean_dry_run', action='store_true', help='preview clean actions without deleting files')
     parser.add_argument('--force_all', action='store_true', help='Force process all sequences including those marked as FAILED')
+    parser.add_argument('--auto_extract_zip', dest='auto_extract_zip', action='store_true',
+                        help='Automatically extract recording_*.zip into raw1/raw2 when needed (default: enabled)')
+    parser.add_argument('--no_auto_extract_zip', dest='auto_extract_zip', action='store_false',
+                        help='Disable auto extraction of recording_*.zip and require prepared raw1/raw2')
+    parser.set_defaults(auto_extract_zip=True)
     # Help short-circuit: always show help and exit, regardless of other args.
     if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
         parser.print_help()
