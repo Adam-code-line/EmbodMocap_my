@@ -137,23 +137,24 @@ if __name__ == "__main__":
     w = 960
     h = 720
 
-    frame_ids = cameras1['frame_ids']
-    P1 = combine_RT(cameras1["R"], cameras1["T"])
-    if len(P1) != frame_ids[-1] - frame_ids[0] + 1:
-        P1 = interpolate_RT(P1, frame_ids, list(range(frame_ids[0], frame_ids[-1]+1)))
+    frame_ids1 = np.array(cameras1['frame_ids'])
+    R1 = np.array(cameras1["R"])
+    T1 = np.array(cameras1["T"])
+    P1 = combine_RT(R1, T1)
+    if len(P1) != frame_ids1[-1] - frame_ids1[0] + 1:
+        P1 = interpolate_RT(P1, frame_ids1, list(range(frame_ids1[0], frame_ids1[-1] + 1)))
         warning_message = f"Warning: missing frames in the smoothed camera in {args.input_folder}/raw1/, so interpolated."
         print(warning_message)
         if args.log_file is not None:
             write_warning_to_log(args.log_file, warning_message)
-        frame_ids = list(range(frame_ids[0], frame_ids[-1]+1))
-        cameras1["R"] = P1[:, :3, :3]
-        cameras1["T"] = P1[:, :3, 3]
-        cameras1["frame_ids"] = frame_ids
+        frame_ids1 = np.arange(frame_ids1[0], frame_ids1[-1] + 1, dtype=np.int64)
+        R1 = P1[:, :3, :3]
+        T1 = P1[:, :3, 3]
 
-    v1_start_sai = cameras1['frame_ids'].tolist().index(v1_start)
-    v1_end_sai = cameras1['frame_ids'].tolist().index(v1_end)
-    cameras1_sliced["R"] = cameras1["R"][v1_start_sai:v1_end_sai]
-    cameras1_sliced["T"] = cameras1["T"][v1_start_sai:v1_end_sai].squeeze()
+    v1_start_sai = frame_ids1.tolist().index(v1_start)
+    v1_end_sai = frame_ids1.tolist().index(v1_end)
+    cameras1_sliced["R"] = R1[v1_start_sai:v1_end_sai]
+    cameras1_sliced["T"] = T1[v1_start_sai:v1_end_sai].squeeze()
 
     assert cameras1_sliced["R"].shape[0] == cameras1_sliced["T"].shape[0], "R and T should have the same number of frames"
     assert cameras1_sliced["R"].shape[0] == length, "R and T should have the same number of frames"
@@ -213,25 +214,26 @@ if __name__ == "__main__":
     batch_run(depth_tasks_v1, max_workers=8, desc="v1 depth")
 
     ##################################################################################
-    frame_ids = cameras2['frame_ids']
-    P2 = combine_RT(cameras2["R"], cameras2["T"])
-    if len(P2) != frame_ids[-1] - frame_ids[0] + 1:
-        P2 = interpolate_RT(P2, frame_ids, list(range(frame_ids[0], frame_ids[-1]+1)))
+    frame_ids2 = np.array(cameras2['frame_ids'])
+    R2 = np.array(cameras2["R"])
+    T2 = np.array(cameras2["T"])
+    P2 = combine_RT(R2, T2)
+    if len(P2) != frame_ids2[-1] - frame_ids2[0] + 1:
+        P2 = interpolate_RT(P2, frame_ids2, list(range(frame_ids2[0], frame_ids2[-1] + 1)))
         warning_message = f"Warning: missing frames in the smoothed camera in {args.input_folder}/raw2/, so interpolated."
         print(warning_message)
         if args.log_file is not None:
             write_warning_to_log(args.log_file, warning_message)
-        frame_ids = list(range(frame_ids[0], frame_ids[-1]+1))
-        cameras2["R"] = P2[:, :3, :3]
-        cameras2["T"] = P2[:, :3, 3]
-        cameras2["frame_ids"] = frame_ids
+        frame_ids2 = np.arange(frame_ids2[0], frame_ids2[-1] + 1, dtype=np.int64)
+        R2 = P2[:, :3, :3]
+        T2 = P2[:, :3, 3]
 
     cameras2_sliced = dict()
     cameras2_sliced["K"] = cameras2["K"].astype(np.float32)
-    v2_start_sai = cameras2['frame_ids'].tolist().index(v2_start)
-    v2_end_sai = cameras2['frame_ids'].tolist().index(v2_end)
-    cameras2_sliced["R"] = cameras2["R"][v2_start_sai:v2_end_sai]
-    cameras2_sliced["T"] = cameras2["T"][v2_start_sai:v2_end_sai].squeeze()
+    v2_start_sai = frame_ids2.tolist().index(v2_start)
+    v2_end_sai = frame_ids2.tolist().index(v2_end)
+    cameras2_sliced["R"] = R2[v2_start_sai:v2_end_sai]
+    cameras2_sliced["T"] = T2[v2_start_sai:v2_end_sai].squeeze()
     assert cameras2_sliced["R"].shape[0] == cameras2_sliced["T"].shape[0], "R and T should have the same number of frames"
     assert cameras2_sliced["R"].shape[0] == length, "R and T should have the same number of frames"
     
