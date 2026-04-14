@@ -34,7 +34,6 @@ cd embod_mocap
 python tools/visualize_viser.py --xlsx ../datasets/release_demo.xlsx --data_root ../datasets/dataset_demo --stride 2 --scene_mesh simple --mesh_level 1
 ```
 
-
 ### 使用示例数据跑通主流程
 
 你可以直接在我们提供的 demo 数据上运行主流程。
@@ -69,9 +68,9 @@ datasets/
             └── recording_2026-01-25_18-10-11(1).zip
 ```
 
-请注意：当前 `run_stages.py` 不会自动解压 zip。运行主流程前，需要先保证每个 `seq*` 目录内存在可用的 `raw1/`、`raw2/` 目录（且目录内包含 `data.mov`、`data.jsonl`、`calibration.json`、`metadata.json`、`frames2/`）。
+请注意：`run_stages.py` 在 Step 4 会默认自动把 `recording_*.zip` 解压并整理为 `raw1/`、`raw2/`。若 `raw1/`、`raw2/` 已存在，则会直接复用现有目录。
 
-若你手里是 `recording_*.zip`，请先手动解压并整理为 `raw1/`、`raw2/`，再执行 Step 4。
+如需禁用自动解压并强制手动准备目录，可加参数 `--no_auto_extract_zip`。
 
 这两个录制文件应来自同一次采集，因此时间戳通常会非常接近，甚至可能相同。
 
@@ -199,7 +198,7 @@ EmbodMocap/
 - 将 checkpoints 放在 `checkpoints/`。
 - 将 SMPL/SMPL-X body-model 资产放在 `body_models/`。
 - 将捕获的 scene 放在 `datasets/` 下，并将该根目录传递给 `--data_root`。
-- 对于自己采集的数据，建议在运行前先将两个录制源手动整理为 `raw1/`、`raw2/`；不要依赖自动解压。
+- 对于自己采集的数据，可以直接放置两个 `recording_*.zip`；Step 4 默认会自动解压并整理为 `raw1/`、`raw2/`。
 
 </details>
 
@@ -215,6 +214,7 @@ python run_stages_mp.py seq_info.xlsx --data_root /path/to/data --config config.
 ```
 
 `run_stages_mp.py` 支持与 `run_stages.py` 相同的所有参数，另外还有：
+
 - `--gpu_ids`：指定 GPU ID（例如 `0,1,2`）。当数量 > 1 时自动启用多 GPU 模式
 - `--worker_poll_interval`：工作队列轮询间隔（秒），默认：1.0
 - `--max_retries`：每个任务的最大重试次数，默认：1
@@ -327,7 +327,6 @@ python run_stages_mp.py seq_info.xlsx --data_root /path/to/data --config config.
 - 目标：可选的接触感知全局对齐。
 - 要求：XLSX 中有效的 `contacts`。
 - 输出：`optim_params_aligned.npz`、对齐的相机/`kp3d` 产物。
-
 
 </details>
 
