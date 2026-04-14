@@ -328,14 +328,30 @@ def slice_mesh_o3d(mesh, remove_indices):
         if tri[0] in mapping and tri[1] in mapping and tri[2] in mapping:
             new_triangles.append([mapping[tri[0]], mapping[tri[1]], mapping[tri[2]]])
     
+    # Open3D expects strict Nx3 arrays; reshape empty outputs to (0, 3)
+    # to avoid runtime errors when all vertices/triangles are filtered.
+    vertices_np = np.asarray(new_vertices, dtype=np.float64)
+    if vertices_np.size == 0:
+        vertices_np = np.empty((0, 3), dtype=np.float64)
+    else:
+        vertices_np = vertices_np.reshape(-1, 3)
+
+    triangles_np = np.asarray(new_triangles, dtype=np.int32)
+    if triangles_np.size == 0:
+        triangles_np = np.empty((0, 3), dtype=np.int32)
+    else:
+        triangles_np = triangles_np.reshape(-1, 3)
+
     new_mesh = o3d.geometry.TriangleMesh()
-    new_mesh.vertices = o3d.utility.Vector3dVector(np.array(new_vertices))
-    new_mesh.triangles = o3d.utility.Vector3iVector(np.array(new_triangles))
+    new_mesh.vertices = o3d.utility.Vector3dVector(vertices_np)
+    new_mesh.triangles = o3d.utility.Vector3iVector(triangles_np)
     
     if len(new_vertex_colors) > 0:
-        new_mesh.vertex_colors = o3d.utility.Vector3dVector(np.array(new_vertex_colors))
+        colors_np = np.asarray(new_vertex_colors, dtype=np.float64).reshape(-1, 3)
+        new_mesh.vertex_colors = o3d.utility.Vector3dVector(colors_np)
     if len(new_vertex_normals) > 0:
-        new_mesh.vertex_normals = o3d.utility.Vector3dVector(np.array(new_vertex_normals))
+        normals_np = np.asarray(new_vertex_normals, dtype=np.float64).reshape(-1, 3)
+        new_mesh.vertex_normals = o3d.utility.Vector3dVector(normals_np)
     
     return new_mesh
 
@@ -428,6 +444,12 @@ def filter_mesh(mesh, threshold=10000):
             components.append(component)
 
     large_components = [comp for comp in components if len(comp) > threshold]
+    if not large_components:
+        # For small scenes, the fixed threshold may remove everything.
+        # Keep the largest connected component as a safe fallback.
+        if not components:
+            return mesh
+        large_components = [max(components, key=len)]
     large_vertices = set(v for comp in large_components for v in comp)
 
     mask = np.array([
