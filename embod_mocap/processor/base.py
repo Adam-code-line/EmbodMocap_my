@@ -43,6 +43,11 @@ def expand_to_rectangle(mask, filling=255, padding=0):
     return rect_mask
 
 def write_warning_to_log(log_file_path, warning_message):
+    if not log_file_path:
+        # Keep processing even when no log file is configured.
+        print(f"[WARN] {warning_message}")
+        return
+
     try:
         with open(log_file_path, 'r') as log_file:
             log_content = log_file.read()
