@@ -253,9 +253,24 @@ if __name__ == "__main__":
             cmd = f"bash processor/regist_seq.sh {scene_path} {view_path} {focal} {cx} {cy} {PATHS.colmap_vocab_tree_path}"
             run_cmd(cmd)
 
+            colmap_txt_dir = os.path.join(view_path, "colmap")
+            required_txt = ["cameras.txt", "images.txt", "points3D.txt"]
+            missing = [n for n in required_txt if not os.path.exists(os.path.join(colmap_txt_dir, n))]
+            if missing:
+                raise RuntimeError(
+                    f"COLMAP registration did not produce {missing} under {colmap_txt_dir}. "
+                    "Likely causes: scene colmap database/sparse model mismatch, too few/low-overlap sliced frames, "
+                    "or image_registrator failure in processor/regist_seq.sh."
+                )
+
         def run_registration(view_path, view_prefix, image_names, num_frames, attempt="uniform"):
             sample_and_register(view_path, image_names, args.colmap_num, scene_path, focal, cx, cy, attempt)
             cameras_parsed, images_parsed, points3D_parsed = parse_colmap_files(f'{view_path}/colmap')
+            if len(images_parsed) == 0 or len(points3D_parsed) == 0:
+                raise RuntimeError(
+                    f"COLMAP parsed empty result for {view_path} ({view_prefix}): "
+                    f"images={len(images_parsed)}, points3D={len(points3D_parsed)}"
+                )
             imgs_dump = dict()
             for image in images_parsed:
                 im_name = image['image_name']
