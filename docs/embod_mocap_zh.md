@@ -25,6 +25,33 @@ bash embod_mocap/tools/download_demo_data.sh
 bash embod_mocap/tools/download_full_data.sh
 ```
 
+### SSH 本地端口转发（1080.alpen-y.top:22）
+
+如果你在远程服务器上运行可视化服务（例如 Viser 的 8080 端口），可以用 SSH 把远程端口映射到本地。
+
+```bash
+# 通用模板
+ssh -p 22 -L <本地端口>:127.0.0.1:<远程端口> <用户名>@1080.alpen-y.top
+
+# 直接可用示例：把远程 8080 映射到本地 8080
+ssh -p 22 -L 8080:127.0.0.1:8080 wubin@1080.alpen-y.top
+
+# 后台运行（不占当前终端）
+ssh -p 22 -Nf -L 8080:127.0.0.1:8080 wubin@1080.alpen-y.top
+```
+
+连接后，在本地浏览器打开：
+
+```text
+http://127.0.0.1:8080
+```
+
+如果本地 8080 被占用，可改成本地其它端口（例如 18080）：
+
+```bash
+ssh -p 22 -L 18080:127.0.0.1:8080 wubin@1080.alpen-y.top
+```
+
 ### 先查看我们提供的结果
 
 如果你想在跑主流程前先浏览发布的 demo 结果，可以启动交互式 Viser 可视化：

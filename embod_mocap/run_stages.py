@@ -1126,6 +1126,24 @@ def full_steps(xlsx_path, data_root, config, steps):
                 assert os.path.exists(os.path.join(scene_folder, 'colmap', 'database.db')), f"colmap database not found in {scene_folder}/colmap, please run step 2 first, check the LD_LIBRARY_PATH problem in QAs.md !!!"
 
                 proc_v1, proc_v2 = get_process_flags(seq_path, anchor_files[8], args.mode)
+                if proc_v1:
+                    v1_images_dir = os.path.join(seq_path, "v1", "images")
+                    if not os.path.isdir(v1_images_dir) or not any(not n.startswith('.') for n in os.listdir(v1_images_dir)):
+                        raise FileNotFoundError(
+                            f"Step 8 input missing: {v1_images_dir}. "
+                            "Step 8 depends on Step 6 (slice_views) outputs. "
+                            "Please fill v1_start/v2_start in xlsx and run --steps 6 (or 6-7) first."
+                        )
+
+                if proc_v2:
+                    v2_images_dir = os.path.join(seq_path, "v2", "images")
+                    if not os.path.isdir(v2_images_dir) or not any(not n.startswith('.') for n in os.listdir(v2_images_dir)):
+                        raise FileNotFoundError(
+                            f"Step 8 input missing: {v2_images_dir}. "
+                            "Step 8 depends on Step 6 (slice_views) outputs. "
+                            "Please fill v1_start/v2_start in xlsx and run --steps 6 (or 6-7) first."
+                        )
+
                 if proc_v1 or proc_v2:
                     cmd = build_command_with_flags(
                         f"python processor/colmap_human_cam.py {seq_path}",
