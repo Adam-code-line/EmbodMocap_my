@@ -1,5 +1,10 @@
 # scene_20260414_152817 单独构建执行手册
 
+## 0. 先读这两份文档
+
+1. 拍摄数据侧问题与判定：`docs/capture_data_side_issues_zh.md`
+2. 给执行同学的完整运行手册：`docs/pipeline_operator_runbook_zh.md`
+
 ## 1. 目标
 
 只对 `scene_20260414_152817` 执行构建，不处理 `my_capture` 下其它 scene。
