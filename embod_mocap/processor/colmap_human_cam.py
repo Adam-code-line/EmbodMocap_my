@@ -1,4 +1,5 @@
 import os
+import sys
 import cv2
 import re
 import random
@@ -210,6 +211,8 @@ if __name__ == "__main__":
     
     w = 960
     h = 720
+    v1_success = not args.proc_v1
+    v2_success = not args.proc_v2
 
     if args.proc_v1:
         v1_path = os.path.join(args.input_folder, "v1")
@@ -307,10 +310,12 @@ if __name__ == "__main__":
             RT1 = combine_RT(R1, T1)
             export_cameras_to_ply(RT1, os.path.join(args.input_folder, "v1", "cameras_colmap.ply"))
             np.savez(os.path.join(args.input_folder, "v1", "cameras_colmap.npz"), **cameras)
+            v1_success = True
 
         except Exception as e:
             print(f"Error parsing colmap camera for {args.input_folder} v1: {e}")
             write_warning_to_log(args.log_file, f"Colmap regist camera for {args.input_folder} v1 failed")
+            v1_success = False
 
     else:
         print(f"Skip colmap register for human cam v1")
@@ -362,9 +367,14 @@ if __name__ == "__main__":
             RT2 = combine_RT(R2, T2)
             export_cameras_to_ply(RT2, os.path.join(args.input_folder, "v2", "cameras_colmap.ply"))
             np.savez(os.path.join(args.input_folder, "v2", "cameras_colmap.npz"), **cameras)
+            v2_success = True
         except Exception as e:
             print(f"Error parsing colmap camera for {args.input_folder} v2: {e}")
             write_warning_to_log(args.log_file, f"Colmap regist camera for {args.input_folder} v2 failed")
+            v2_success = False
 
     else:
         print(f"Skip colmap register for human cam v2")
+
+    if not v1_success or not v2_success:
+        raise SystemExit(1)

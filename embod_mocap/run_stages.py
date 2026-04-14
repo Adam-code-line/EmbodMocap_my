@@ -1210,6 +1210,19 @@ def full_steps(xlsx_path, data_root, config, steps):
                         keyframe_mask=True,
                     )
                     run_cmd(cmd)
+
+                    missing_step8_outputs = []
+                    if proc_v1 and not os.path.exists(os.path.join(seq_path, anchor_files[8][0])):
+                        missing_step8_outputs.append(anchor_files[8][0])
+                    if proc_v2 and not os.path.exists(os.path.join(seq_path, anchor_files[8][1])):
+                        missing_step8_outputs.append(anchor_files[8][1])
+
+                    if missing_step8_outputs:
+                        raise RuntimeError(
+                            f"Step 8 failed for {seq_path}; missing outputs: {missing_step8_outputs}. "
+                            "This is usually caused by scene colmap model/database mismatch. "
+                            "Please rerun scene-level Step 1 and Step 3 with --mode overwrite, then rerun Step 6-15."
+                        )
                 else:
                     print(f"Skip colmap register human cam for {scene_folder} {seq_name}")
 
