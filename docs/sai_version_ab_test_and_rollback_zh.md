@@ -19,12 +19,14 @@ export XLSX="$PIPELINE_DIR/seq_info.xlsx"
 export CFG="$PIPELINE_DIR/config_fast.yaml"
 export LOG_DIR="$PROJECT_ROOT/logs"
 
+
 export MAIN_ENV=embodmocap
 export AB_ENV=embodmocap_sai150
 
 # A/B 用例（按需替换）
-export SCENE1="$DATA_ROOT/scene_20260413_161617"
-export SCENE2="$DATA_ROOT/scene_20260413_201337"
+export SCENE1="$DATA_ROOT/scene_20260414_102711"
+# 可选第二个 scene（如不需要可不设置）
+# export SCENE2="$DATA_ROOT/scene_20260413_201337"
 ```
 
 可选检查：
@@ -59,17 +61,30 @@ conda create -n "$AB_ENV" python=3.11 -y
 conda activate "$AB_ENV"
 python -m pip install --upgrade pip
 python -m pip install "spectacularAI[full]==1.50.0"
+python -m pip install --upgrade "pandas<2.2"
 ```
 
 如果已安装基础包但运行时报缺依赖（如 `cv2`、`pandas`），可补装：
 
 ```bash
-python -m pip install pandas opencv-python-headless
+python -m pip install opencv-python-headless
+```
+
+如果你已经遇到下面这个错误：
+
+- `TypeError: Invalid value 'xxx' for dtype 'int64'`
+
+可在当前环境直接执行：
+
+```bash
+conda activate "$AB_ENV"
+python -m pip install --upgrade "pandas<2.2"
+python -c "import pandas as pd; print('pandas=', pd.__version__)"
 ```
 
 ## 三、校验版本与可执行路径
 
-注意：模块路径字段应使用 __file__，不是 file。
+注意：模块路径字段应使用 `__file__`，不是 `file`。
 
 ```bash
 conda activate "$AB_ENV"
@@ -92,7 +107,11 @@ command -v sai-cli
 ```bash
 conda activate "$AB_ENV"
 
-for S in "$SCENE1" "$SCENE2"; do
+# 支持只测一个 scene，或测两个 scene
+SCENES=("$SCENE1")
+[ -n "${SCENE2:-}" ] && SCENES+=("$SCENE2")
+
+for S in "${SCENES[@]}"; do
     [ -d "$S" ] || { echo "[SKIP] scene not found: $S"; continue; }
     echo "=== $S ==="
     sai-cli process "$S" "$S" --key_frame_distance 0.1; echo "default_exit=$?"
@@ -111,7 +130,12 @@ done
 ```bash
 cd "$PIPELINE_DIR"
 
-# 1) 先在 AB 环境完成 Step1
+# 0) 先在主环境生成/刷新 Step0 的 xlsx（已存在则先备份）
+conda activate "$MAIN_ENV"
+[ -f "$XLSX" ] && cp "$XLSX" "${XLSX%.xlsx}_backup_$(date +%F_%H%M%S).xlsx"
+python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --steps 0
+
+# 1) 在 AB 环境完成 Step1
 conda activate "$AB_ENV"
 python -c "from importlib.metadata import version; print('spectacularAI=', version('spectacularAI'))"
 python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --config "$CFG" --steps 1 --mode overwrite
@@ -181,5 +205,39 @@ conda create -n embodmocap_restore --file "$LOG_DIR/conda_explicit_${MAIN_ENV}_b
 ## 七、执行建议
 
 1. 先用隔离环境做 A/B，不要直接改主环境。
-2. 先单跑 Step1 成功，再继续 Step2-5，避免连锁报错干扰判断。
+2. 先跑 Step0，再单跑 Step1 成功，再继续 Step2-5，避免连锁报错干扰判断。
 3. 每次改版本前都先做快照，确保可回退。
+
+## 八、快速指令
+
+```bash
+export PROJECT_ROOT=~/EmbodMocap_dev
+export PIPELINE_DIR="$PROJECT_ROOT/embod_mocap"
+export DATA_ROOT="$PROJECT_ROOT/datasets/my_capture"
+export XLSX="$PIPELINE_DIR/seq_info.xlsx"
+export CFG="$PIPELINE_DIR/config_fast.yaml"
+export MAIN_ENV=embodmocap
+export AB_ENV=embodmocap_sai150
+
+cd "$PIPELINE_DIR"
+
+# 修复 int64 报错（建议先执行一次）
+conda activate "$AB_ENV"
+python -m pip install --upgrade "pandas<2.2"
+
+# 0) Step0：生成/刷新 xlsx（已存在则先备份）
+conda activate "$MAIN_ENV"
+[ -f "$XLSX" ] && cp "$XLSX" "${XLSX%.xlsx}_backup_$(date +%F_%H%M%S).xlsx"
+python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --steps 0
+
+# 1) Step1：在 sai150 环境执行
+conda activate "$AB_ENV"
+python -c "from importlib.metadata import version; print('spectacularAI=', version('spectacularAI'))"
+python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --config "$CFG" --steps 1 --mode overwrite
+
+# 2) Step2-5：切回主环境执行
+conda activate "$MAIN_ENV"
+python -m pip install "spectacularAI==1.35.0"
+python -c "from importlib.metadata import version; print('spectacularAI=', version('spectacularAI'))"
+python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --config "$CFG" --steps 2-5 --mode overwrite
+```
