@@ -76,6 +76,19 @@ def is_non_empty_dir(path):
         return False
     return any(not name.startswith('.') for name in os.listdir(path))
 
+
+def count_non_hidden_files(path, suffix=None):
+    if not os.path.isdir(path):
+        return 0
+    count = 0
+    for name in os.listdir(path):
+        if name.startswith('.'):
+            continue
+        if suffix is not None and not name.lower().endswith(suffix):
+            continue
+        count += 1
+    return count
+
 def check_slice_views_completion(seq_path, anchor_files, return_details=False):
     """Check if slice_views outputs exist (nested structure)"""
     issues = []
@@ -1185,22 +1198,27 @@ def full_steps(xlsx_path, data_root, config, steps):
                 assert os.path.exists(os.path.join(scene_folder, 'colmap', 'database.db')), f"colmap database not found in {scene_folder}/colmap, please run step 2 first, check the LD_LIBRARY_PATH problem in QAs.md !!!"
 
                 proc_v1, proc_v2 = get_process_flags(seq_path, anchor_files[8], args.mode)
+                min_step8_frames = 3
                 if proc_v1:
                     v1_images_dir = os.path.join(seq_path, "v1", "images")
-                    if not os.path.isdir(v1_images_dir) or not any(not n.startswith('.') for n in os.listdir(v1_images_dir)):
+                    v1_frame_count = count_non_hidden_files(v1_images_dir, suffix='.jpg')
+                    if v1_frame_count < min_step8_frames:
                         raise FileNotFoundError(
-                            f"Step 8 input missing: {v1_images_dir}. "
-                            "Step 8 depends on Step 6 (slice_views) outputs. "
-                            "Please fill v1_start/v2_start in xlsx and run --steps 6 (or 6-7) first."
+                            f"Step 8 input invalid: {v1_images_dir} has {v1_frame_count} jpg frames (< {min_step8_frames}). "
+                            "Step 8 depends on Step 6 (slice_views) outputs with enough overlap. "
+                            "Please rerun Step 5/6 (try smaller smooth fallback key_frame_distance, e.g. 0.03-0.05) "
+                            "and verify v1_start/v2_start so v1/images and v2/images are long enough."
                         )
 
                 if proc_v2:
                     v2_images_dir = os.path.join(seq_path, "v2", "images")
-                    if not os.path.isdir(v2_images_dir) or not any(not n.startswith('.') for n in os.listdir(v2_images_dir)):
+                    v2_frame_count = count_non_hidden_files(v2_images_dir, suffix='.jpg')
+                    if v2_frame_count < min_step8_frames:
                         raise FileNotFoundError(
-                            f"Step 8 input missing: {v2_images_dir}. "
-                            "Step 8 depends on Step 6 (slice_views) outputs. "
-                            "Please fill v1_start/v2_start in xlsx and run --steps 6 (or 6-7) first."
+                            f"Step 8 input invalid: {v2_images_dir} has {v2_frame_count} jpg frames (< {min_step8_frames}). "
+                            "Step 8 depends on Step 6 (slice_views) outputs with enough overlap. "
+                            "Please rerun Step 5/6 (try smaller smooth fallback key_frame_distance, e.g. 0.03-0.05) "
+                            "and verify v1_start/v2_start so v1/images and v2/images are long enough."
                         )
 
                 if proc_v1 or proc_v2:
