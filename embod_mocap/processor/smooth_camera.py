@@ -1,11 +1,11 @@
 import sys
 import json
 import os
+import re
 import numpy as np
 import argparse
 from scipy.spatial.transform import Rotation as R
 from embod_mocap.processor.base import export_cameras_to_ply, run_cmd, write_warning_to_log
-from embod_mocap.human.utils.transforms import interpolate_RT
 
 
 def compute_extrinsic_matrix(position, orientation):
@@ -51,14 +51,240 @@ def read_jsonl_to_numpy(file_path):
         "frame_id": []
     }
 
-    with open(file_path, 'r') as f:
+    with open(file_path, 'r', encoding='utf-8') as f:
         for line in f:
             record = json.loads(line.strip())
-            if not 'frames' in record:
+            if "frames" not in record:
                 continue
-            data["timestamps"].append(record["time"])
-            data["frame_id"].append(record["number"])
+            if "time" not in record or "number" not in record:
+                continue
+            data["timestamps"].append(float(record["time"]))
+            data["frame_id"].append(int(record["number"]))
+
+    data["timestamps"] = np.asarray(data["timestamps"], dtype=np.float64)
+    data["frame_id"] = np.asarray(data["frame_id"], dtype=np.int64)
     return data
+
+
+def load_intrinsics(raw_dir, down_scale):
+    with open(os.path.join(raw_dir, "calibration.json"), "r", encoding="utf-8") as f:
+        calibration = json.load(f)
+
+    focal = calibration["cameras"][0]["focalLengthX"] / down_scale
+    cx = calibration["cameras"][0]["principalPointX"] / down_scale
+    cy = calibration["cameras"][0]["principalPointY"] / down_scale
+
+    return np.array(
+        [[focal, 0, cx, 0],
+         [0, focal, cy, 0],
+         [0, 0, 1, 0],
+         [0, 0, 0, 1]],
+        dtype=np.float64,
+    )
+
+
+def nearest_frame_id(target_time, frame_timestamps, frame_ids):
+    if frame_timestamps.size == 0:
+        raise RuntimeError("No frame timestamps found in data.jsonl")
+
+    idx = int(np.searchsorted(frame_timestamps, target_time))
+    if idx <= 0:
+        return int(frame_ids[0])
+    if idx >= frame_timestamps.size:
+        return int(frame_ids[-1])
+
+    prev_idx = idx - 1
+    next_idx = idx
+    if abs(frame_timestamps[next_idx] - target_time) < abs(frame_timestamps[prev_idx] - target_time):
+        return int(frame_ids[next_idx])
+    return int(frame_ids[prev_idx])
+
+
+def extract_frame_id_from_path(file_path):
+    match = re.search(r"(\d+)(?=\.[^.]+$)", str(file_path))
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def infer_frame_ids_from_process_output(raw_frame_ids, process_frame_ids):
+    total = len(process_frame_ids)
+    if total == 0:
+        return []
+
+    if raw_frame_ids.size == 0:
+        return list(range(total))
+
+    available_ids = [int(fid) for fid in raw_frame_ids.tolist()]
+    available_set = set(available_ids)
+    parsed_ids = [fid for fid in process_frame_ids if fid is not None]
+
+    best_offset = 0
+    best_hits = -1
+    if parsed_ids:
+        for candidate_offset in (0, -1, 1):
+            hits = sum(1 for fid in parsed_ids if (fid + candidate_offset) in available_set)
+            if hits > best_hits:
+                best_hits = hits
+                best_offset = candidate_offset
+
+    default_ids = available_ids[:total]
+    if len(default_ids) < total:
+        start = default_ids[-1] + 1 if default_ids else 0
+        default_ids.extend(list(range(start, start + (total - len(default_ids)))))
+
+    inferred = []
+    for idx, fid in enumerate(process_frame_ids):
+        if fid is None:
+            inferred.append(int(default_ids[idx]))
+        else:
+            inferred.append(int(fid + best_offset))
+
+    return inferred
+
+
+def timestamps_from_frame_ids(frame_ids, raw_frame_ids, raw_timestamps):
+    if raw_frame_ids.size == 0:
+        return np.arange(len(frame_ids), dtype=np.float64)
+
+    id_to_time = {
+        int(fid): float(ts)
+        for fid, ts in zip(raw_frame_ids.tolist(), raw_timestamps.tolist())
+    }
+
+    timestamps = []
+    for frame_id in frame_ids:
+        if frame_id in id_to_time:
+            timestamps.append(id_to_time[frame_id])
+            continue
+
+        nearest_idx = int(np.argmin(np.abs(raw_frame_ids - frame_id)))
+        timestamps.append(float(raw_timestamps[nearest_idx]))
+
+    return np.asarray(timestamps, dtype=np.float64)
+
+
+def load_smooth_trajectory(jsonl_file, frame_info):
+    poses = []
+    timestamps = []
+    with open(jsonl_file, "r", encoding="utf-8") as file:
+        for line in file:
+            record = json.loads(line.strip())
+            if "position" not in record or "orientation" not in record or "time" not in record:
+                continue
+            poses.append(compute_extrinsic_matrix(record["position"], record["orientation"]))
+            timestamps.append(float(record["time"]))
+
+    if not poses:
+        raise RuntimeError(f"No valid camera poses found in {jsonl_file}")
+
+    frame_ids = [
+        nearest_frame_id(ts, frame_info["timestamps"], frame_info["frame_id"])
+        for ts in timestamps
+    ]
+
+    return (
+        np.stack(poses, axis=0),
+        np.asarray(timestamps, dtype=np.float64),
+        np.asarray(frame_ids, dtype=np.int64),
+    )
+
+
+def load_process_trajectory(transforms_file, frame_info):
+    with open(transforms_file, "r", encoding="utf-8") as file:
+        transforms = json.load(file)
+
+    frames = transforms.get("frames", [])
+    if not frames:
+        raise RuntimeError(f"No frames found in {transforms_file}")
+
+    poses = []
+    process_frame_ids = []
+    for frame in frames:
+        matrix = np.asarray(frame.get("transform_matrix", []), dtype=np.float64)
+        if matrix.shape != (4, 4):
+            continue
+        poses.append(matrix)
+        process_frame_ids.append(extract_frame_id_from_path(frame.get("file_path", "")))
+
+    if not poses:
+        raise RuntimeError(f"No valid transform_matrix entries found in {transforms_file}")
+
+    frame_ids = infer_frame_ids_from_process_output(frame_info["frame_id"], process_frame_ids)
+    timestamps = timestamps_from_frame_ids(frame_ids, frame_info["frame_id"], frame_info["timestamps"])
+
+    return (
+        np.stack(poses, axis=0),
+        timestamps,
+        np.asarray(frame_ids, dtype=np.int64),
+    )
+
+
+def save_camera_outputs(raw_dir, K, poses, timestamps, frame_ids):
+    np.savez(
+        os.path.join(raw_dir, "cameras_sai.npz"),
+        K=K,
+        timestamps=np.asarray(timestamps, dtype=np.float64),
+        frame_ids=np.asarray(frame_ids, dtype=np.int64),
+        R=poses[:, :3, :3],
+        T=poses[:, :3, 3],
+    )
+    export_cameras_to_ply(poses, os.path.join(raw_dir, "cameras_sai.ply"))
+
+
+def process_view(seq_folder, view_name, down_scale, log_file, use_process_fallback=True, fallback_key_frame_distance=0.05):
+    raw_dir = os.path.join(seq_folder, view_name)
+    data_jsonl = os.path.join(raw_dir, "data.jsonl")
+    if not os.path.exists(data_jsonl):
+        raise RuntimeError(f"Missing input file: {data_jsonl}")
+
+    frame_info = read_jsonl_to_numpy(data_jsonl)
+    if frame_info["frame_id"].size == 0:
+        raise RuntimeError(f"No frame records found in {data_jsonl}")
+
+    K = load_intrinsics(raw_dir, down_scale)
+    smooth_jsonl = os.path.join(raw_dir, "cameras_sai.jsonl")
+    if os.path.exists(smooth_jsonl):
+        os.remove(smooth_jsonl)
+
+    run_cmd(f"sai-cli smooth {raw_dir}/ {smooth_jsonl}")
+
+    if os.path.exists(smooth_jsonl) and os.path.getsize(smooth_jsonl) > 0:
+        try:
+            poses, timestamps, frame_ids = load_smooth_trajectory(smooth_jsonl, frame_info)
+            save_camera_outputs(raw_dir, K, poses, timestamps, frame_ids)
+            print(f"Smoothing camera for {seq_folder} {view_name} succeeded via sai-cli smooth")
+            return
+        except Exception as exc:
+            warning = f"Smooth output parse failed for {raw_dir}: {exc}"
+            print(warning)
+            write_warning_to_log(log_file, warning)
+    else:
+        warning = f"sai-cli smooth produced no output for {raw_dir}"
+        print(warning)
+        write_warning_to_log(log_file, warning)
+
+    if not use_process_fallback:
+        raise RuntimeError(f"Smoothing failed for {raw_dir} and process fallback is disabled")
+
+    warning = (
+        f"Fallback enabled: rerun camera solve with sai-cli process for {raw_dir} "
+        f"(key_frame_distance={fallback_key_frame_distance})"
+    )
+    print(warning)
+    write_warning_to_log(log_file, warning)
+
+    transforms_file = os.path.join(raw_dir, "transforms.json")
+    if os.path.exists(transforms_file):
+        os.remove(transforms_file)
+    run_cmd(f"sai-cli process {raw_dir}/ {raw_dir}/ --key_frame_distance {fallback_key_frame_distance}")
+
+    if not os.path.exists(transforms_file):
+        raise RuntimeError(f"Fallback failed: {transforms_file} was not generated")
+
+    poses, timestamps, frame_ids = load_process_trajectory(transforms_file, frame_info)
+    save_camera_outputs(raw_dir, K, poses, timestamps, frame_ids)
+    print(f"Smoothing camera for {seq_folder} {view_name} succeeded via process fallback")
 
 
 if __name__ == "__main__":
@@ -90,88 +316,65 @@ if __name__ == "__main__":
         default=None,
         help="Path to the log file",
     )
+    parser.add_argument(
+        "--process_fallback",
+        dest="process_fallback",
+        action="store_true",
+        help="Enable fallback to sai-cli process when sai-cli smooth fails",
+    )
+    parser.add_argument(
+        "--no_process_fallback",
+        dest="process_fallback",
+        action="store_false",
+        help="Disable fallback to sai-cli process when sai-cli smooth fails",
+    )
+    parser.add_argument(
+        "--fallback_key_frame_distance",
+        type=float,
+        default=0.05,
+        help="key_frame_distance used when process fallback is triggered",
+    )
+    parser.set_defaults(process_fallback=True)
     args = parser.parse_args()
     seq_folder = args.input_folder
 
-    ######################################################
+    has_error = False
+
     if args.proc_v1:
-        frame_info1 = read_jsonl_to_numpy(os.path.join(args.input_folder, "raw1", "data.jsonl"))
-
-        with open(f"{os.path.join(args.input_folder, 'raw1')}/calibration.json", "r", encoding="utf-8") as f:
-            calibration = json.load(f)
-        focal = calibration['cameras'][0]['focalLengthX'] / args.down_scale
-        cx = calibration['cameras'][0]['principalPointX'] / args.down_scale
-        cy = calibration['cameras'][0]['principalPointY'] / args.down_scale
-        K1 = np.array([[focal, 0, cx, 0],
-                        [0, focal, cy, 0],
-                        [0, 0, 1, 0],
-                        [0, 0, 0, 1]])
-        
-        cmd = f"sai-cli smooth {seq_folder}/raw1/ {seq_folder}/raw1/cameras_sai.jsonl"
-        run_cmd(cmd)
-        data1 = []
-        json_file1 = f"{seq_folder}/raw1/cameras_sai.jsonl"
-        if not os.path.exists(json_file1):
-            print(f"Smoothing camera for {seq_folder} v1 failed")
-            write_warning_to_log(args.log_file, f"Smoothing camera for {seq_folder} v1 failed")
-            exit()
-
-        with open(json_file1, "r") as file:
-            for line in file:
-                data1.append(json.loads(line.strip()))
-        P1 = []
-        timestamps1 = []
-        frame_ids = []
-        for i in range(len(data1)):
-            P1.append(compute_extrinsic_matrix(data1[i]['position'], data1[i]['orientation']))
-            timestamps1.append(data1[i]['time'])
-            frame_idx = frame_info1['timestamps'].index(timestamps1[-1])
-            frame_ids.append(frame_info1['frame_id'][frame_idx])
-        timestamps1 = np.array(timestamps1)
-        P1 = np.stack(P1, axis=0)
-        np.savez(f"{seq_folder}/raw1/cameras_sai.npz", K=K1, timestamps=timestamps1, frame_ids=frame_ids, R=P1[:, :3, :3], T=P1[:, :3, 3])
-        export_cameras_to_ply(P1, f"{seq_folder}/raw1/cameras_sai.ply")
+        try:
+            process_view(
+                seq_folder=args.input_folder,
+                view_name="raw1",
+                down_scale=args.down_scale,
+                log_file=args.log_file,
+                use_process_fallback=args.process_fallback,
+                fallback_key_frame_distance=args.fallback_key_frame_distance,
+            )
+        except Exception as exc:
+            has_error = True
+            message = f"Smoothing camera for {seq_folder} v1 failed: {exc}"
+            print(message)
+            write_warning_to_log(args.log_file, message)
     else:
         print(f"Skip smoothing camera for raw1")
 
-    ######################################################
     if args.proc_v2:
-        frame_info2 = read_jsonl_to_numpy(os.path.join(args.input_folder, "raw2", "data.jsonl"))
-
-        with open(f"{os.path.join(args.input_folder, 'raw2')}/calibration.json", "r", encoding="utf-8") as f:
-            calibration = json.load(f)
-        focal = calibration['cameras'][0]['focalLengthX'] / args.down_scale
-        cx = calibration['cameras'][0]['principalPointX'] / args.down_scale
-        cy = calibration['cameras'][0]['principalPointY'] / args.down_scale
-        K2 = np.array([[focal, 0, cx, 0],
-                        [0, focal, cy, 0],
-                        [0, 0, 1, 0],
-                        [0, 0, 0, 1]])
-
-        cmd = f"sai-cli smooth {seq_folder}/raw2/ {seq_folder}/raw2/cameras_sai.jsonl"
-        run_cmd(cmd)
-
-        data2 = []
-        json_file2 = f"{seq_folder}/raw2/cameras_sai.jsonl"
-        if not os.path.exists(json_file2):
-            print(f"Smoothing camera for {seq_folder} v2 failed")
-            write_warning_to_log(args.log_file, f"Smoothing camera for {seq_folder} v2 failed")
-            exit()
-
-        with open(json_file2, "r") as file:
-            for line in file:
-                data2.append(json.loads(line.strip()))
-        P2 = []
-        timestamps2 = []
-        frame_ids = []
-        for i in range(len(data2)):
-            P2.append(compute_extrinsic_matrix(data2[i]['position'], data2[i]['orientation']))
-            timestamps2.append(data2[i]['time'])
-            frame_idx = frame_info2['timestamps'].index(timestamps2[-1])
-            frame_ids.append(frame_info2['frame_id'][frame_idx])
-        timestamps2 = np.array(timestamps2)
-        P2 = np.stack(P2, axis=0)
-        np.savez(f"{seq_folder}/raw2/cameras_sai.npz", K=K2, timestamps=timestamps2, frame_ids=frame_ids, R=P2[:, :3, :3], T=P2[:, :3, 3])
-        export_cameras_to_ply(P2, f"{seq_folder}/raw2/cameras_sai.ply")
+        try:
+            process_view(
+                seq_folder=args.input_folder,
+                view_name="raw2",
+                down_scale=args.down_scale,
+                log_file=args.log_file,
+                use_process_fallback=args.process_fallback,
+                fallback_key_frame_distance=args.fallback_key_frame_distance,
+            )
+        except Exception as exc:
+            has_error = True
+            message = f"Smoothing camera for {seq_folder} v2 failed: {exc}"
+            print(message)
+            write_warning_to_log(args.log_file, message)
     else:
         print(f"Skip smoothing camera for raw2")
+
+    if has_error:
+        sys.exit(1)
