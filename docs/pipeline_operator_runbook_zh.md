@@ -217,15 +217,101 @@ python run_stages.py "$XLSX_ONE" --data_root "$DATA_ROOT" --config "$CFG" --step
 python run_stages.py "$XLSX_ONE" --data_root "$DATA_ROOT" --config "$CFG" --steps 5-8 --mode overwrite --force_all
 ```
 
-## 7. 可视化与远程访问
+## 7. 仅看场景构建预览（SSH + 本地浏览器）
 
-远程服务器端起服务后，可在本地端口转发：
+本节用于“我现在只想看场景构建效果”，不要求先跑完 1-16 全流程。
+
+### 7.1 本地建立 SSH 端口转发
+
+在你的本地电脑执行（推荐后台模式）：
 
 ```bash
-ssh -p 22 -L 8080:127.0.0.1:8080 wubin@1080.alpen-y.top
+ssh -p 22 -Nf -L 18080:127.0.0.1:8080 wubin@1080.alpen-y.top
 ```
 
-浏览器访问：`http://127.0.0.1:8080`。
+如果你希望前台观察连接状态，可用：
+
+```bash
+ssh -p 22 -L 18080:127.0.0.1:8080 wubin@1080.alpen-y.top
+```
+
+### 7.2 登录服务器并准备变量
+
+```bash
+ssh -p 22 wubin@1080.alpen-y.top
+
+cd ~/EmbodMocap_dev/embod_mocap
+export DATA_ROOT=../datasets/my_capture
+export XLSX_ONE=seq_info.xlsx
+export CFG=config_fast.yaml
+```
+
+### 7.3 如果场景网格还没生成，先跑最小构建（Step1-2）
+
+`$XLSX_ONE` 需先按第 4.1 节准备好（单 scene xlsx）。
+
+```bash
+# Step1：sai150 环境
+conda activate embodmocap_sai150
+python run_stages.py "$XLSX_ONE" --data_root "$DATA_ROOT" --config "$CFG" --steps 1 --mode overwrite --force_all
+
+# Step2：主环境
+conda activate embodmocap
+python run_stages.py "$XLSX_ONE" --data_root "$DATA_ROOT" --config "$CFG" --steps 2 --mode overwrite --force_all
+```
+
+### 7.4 启动“仅场景网格”预览服务（不依赖 optim_params.npz）
+
+```bash
+conda activate embodmocap
+cd ~/EmbodMocap_dev/embod_mocap
+export SCENE_PATH="$DATA_ROOT/$SCENE"
+
+python - <<'PY'
+import time
+import os
+from pathlib import Path
+import trimesh
+import viser
+
+scene = Path(os.environ["SCENE_PATH"]).expanduser().resolve()
+mesh_path = scene / "mesh_simplified.ply"
+if not mesh_path.exists():
+  mesh_path = scene / "mesh_raw.ply"
+if not mesh_path.exists():
+  raise SystemExit(f"No mesh found under {scene}. Please run Step2 first.")
+
+mesh = trimesh.load(str(mesh_path))
+server = viser.ViserServer(port=8080)
+server.scene.set_up_direction("+z")
+server.scene.add_mesh_trimesh(
+  name="/scene/mesh",
+  mesh=mesh,
+  wxyz=(1.0, 0.0, 0.0, 0.0),
+  position=(0.0, 0.0, 0.0),
+)
+print("Scene preview started on remote :8080")
+print("Open local browser: http://127.0.0.1:18080")
+while True:
+  time.sleep(1)
+PY
+```
+
+保持这个终端不退出，然后在本地浏览器访问：
+
+```text
+http://127.0.0.1:18080
+```
+
+### 7.5 如果要看“完整渲染 demo（人体+场景）”
+
+该模式要求 seq 下已存在 `optim_params.npz`（通常 Step15 后才有）。
+
+```bash
+conda activate embodmocap
+cd ~/EmbodMocap_dev/embod_mocap
+python tools/visualize_viser.py --xlsx "$XLSX_ONE" --data_root "$DATA_ROOT" --scene_mesh simple --mesh_level 1 --stride 2 --port 8080
+```
 
 ## 8. 执行交付要求
 
