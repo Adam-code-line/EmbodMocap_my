@@ -990,7 +990,12 @@ def full_steps(xlsx_path, data_root, config, steps):
             if args.mode == 'overwrite' or not os.path.exists(os.path.join(scene_folder, anchor_files[3][0])):
                 print(f"\n==== Step 3, Rebuilding colmap for {scene_folder} ====")
                 run_cmd(f"source processor/rebuild_colmap.sh {scene_folder}")
-                assert (os.path.exists(os.path.join(scene_folder, 'colmap', 'database.db'))), f"colmap database not found in {scene_folder}/colmap, maybe libcudart.so Error, check the LD_LIBRARY_PATH problem in QAs.md !!!"
+                db_path = os.path.join(scene_folder, 'colmap', 'database.db')
+                if not os.path.exists(db_path):
+                    raise RuntimeError(
+                        f"Step 3 failed: {db_path} was not generated. "
+                        "Please check rebuild_colmap.sh logs above (common causes: sparse model image names do not match scene/images, or COLMAP command failure)."
+                    )
             else:
                 print(f"Skip rebuilding colmap for {scene_folder}")
 
