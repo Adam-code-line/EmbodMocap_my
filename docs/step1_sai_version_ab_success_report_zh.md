@@ -198,6 +198,8 @@ python -c "import torch,imageio,pandas,yaml,tqdm,easydict,embod_mocap,huggingfac
 
 ### 5.4 2026-04-14 新增故障说明（Step5）
 
+若出现“Step5 tracking 很早丢失（20+ 秒视频但 Step6 仅切出 2-3 帧）”，请优先参考：`docs/step5_tracking_early_loss_zh.md`。
+
 现象（日志关键字）：
 
 1. `Smoothing failed: no output generated`

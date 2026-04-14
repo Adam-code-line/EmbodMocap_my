@@ -240,6 +240,7 @@ def process_view(
     use_process_fallback=True,
     fallback_key_frame_distance=0.1,
     min_fallback_frames=3,
+    fallback_try_mono=False,
 ):
     raw_dir = os.path.join(seq_folder, view_name)
     data_jsonl = os.path.join(raw_dir, "data.jsonl")
@@ -283,58 +284,75 @@ def process_view(
 
     transforms_file = os.path.join(raw_dir, "transforms.json")
     selected_kfd = None
+    selected_mode = None
+    mode_candidates = [("default", False)]
+    if fallback_try_mono:
+        mode_candidates.append(("mono", True))
+
+    tried_candidates = []
     best_result = None
     for kfd in kfd_candidates:
-        warning = (
-            f"Fallback enabled: rerun camera solve with sai-cli process for {raw_dir} "
-            f"(key_frame_distance={kfd})"
-        )
-        print(warning)
-        write_warning_to_log(log_file, warning)
-
-        if os.path.exists(transforms_file):
-            os.remove(transforms_file)
-
-        run_cmd(f"sai-cli process {raw_dir}/ {raw_dir}/ --key_frame_distance {kfd}")
-        if not os.path.exists(transforms_file):
-            continue
-
-        try:
-            poses, timestamps, frame_ids = load_process_trajectory(transforms_file, frame_info)
-        except Exception as exc:
-            warning = f"Fallback parse failed for {raw_dir} at key_frame_distance={kfd}: {exc}"
+        for mode_name, use_mono in mode_candidates:
+            warning = (
+                f"Fallback enabled: rerun camera solve with sai-cli process for {raw_dir} "
+                f"(mode={mode_name}, key_frame_distance={kfd})"
+            )
             print(warning)
             write_warning_to_log(log_file, warning)
-            continue
 
-        frame_count = len(frame_ids)
-        print(
-            f"Fallback candidate for {raw_dir}: key_frame_distance={kfd}, recovered_frames={frame_count}"
-        )
+            if os.path.exists(transforms_file):
+                os.remove(transforms_file)
 
-        if best_result is None or frame_count > best_result[0]:
-            best_result = (frame_count, kfd, poses, timestamps, frame_ids)
+            cmd = f"sai-cli process {raw_dir}/ {raw_dir}/ --key_frame_distance {kfd}"
+            if use_mono:
+                cmd += " --mono"
+            run_cmd(cmd)
+            tried_candidates.append(f"{mode_name}@{kfd}")
 
-        if frame_count >= min_fallback_frames:
-            selected_kfd = kfd
-            save_camera_outputs(raw_dir, K, poses, timestamps, frame_ids)
+            if not os.path.exists(transforms_file):
+                continue
+
+            try:
+                poses, timestamps, frame_ids = load_process_trajectory(transforms_file, frame_info)
+            except Exception as exc:
+                warning = (
+                    f"Fallback parse failed for {raw_dir} at mode={mode_name}, "
+                    f"key_frame_distance={kfd}: {exc}"
+                )
+                print(warning)
+                write_warning_to_log(log_file, warning)
+                continue
+
+            frame_count = len(frame_ids)
             print(
-                f"Smoothing camera for {seq_folder} {view_name} succeeded via process fallback "
-                f"(key_frame_distance={selected_kfd}, recovered_frames={frame_count})"
+                f"Fallback candidate for {raw_dir}: mode={mode_name}, "
+                f"key_frame_distance={kfd}, recovered_frames={frame_count}"
             )
-            return
+
+            if best_result is None or frame_count > best_result[0]:
+                best_result = (frame_count, kfd, mode_name, poses, timestamps, frame_ids)
+
+            if frame_count >= min_fallback_frames:
+                selected_kfd = kfd
+                selected_mode = mode_name
+                save_camera_outputs(raw_dir, K, poses, timestamps, frame_ids)
+                print(
+                    f"Smoothing camera for {seq_folder} {view_name} succeeded via process fallback "
+                    f"(mode={selected_mode}, key_frame_distance={selected_kfd}, recovered_frames={frame_count})"
+                )
+                return
 
     if best_result is None:
         raise RuntimeError(
             f"Fallback failed: {transforms_file} was not generated "
-            f"(tried key_frame_distance={kfd_candidates})"
+            f"(tried candidates={tried_candidates})"
         )
 
-    best_count, best_kfd, _, _, _ = best_result
+    best_count, best_kfd, best_mode, _, _, _ = best_result
     raise RuntimeError(
         f"Fallback produced too few frames for {raw_dir}: {best_count} (< {min_fallback_frames}) "
-        f"after trying key_frame_distance={kfd_candidates}. "
-        f"Best candidate was {best_kfd}."
+        f"after trying candidates={tried_candidates}. "
+        f"Best candidate was mode={best_mode}, key_frame_distance={best_kfd}."
     )
 
 
@@ -391,6 +409,11 @@ if __name__ == "__main__":
         default=3,
         help="minimum frame count required from process fallback",
     )
+    parser.add_argument(
+        "--fallback_try_mono",
+        action="store_true",
+        help="Also try '--mono' during process fallback (off by default)",
+    )
     parser.set_defaults(process_fallback=True)
     args = parser.parse_args()
     seq_folder = args.input_folder
@@ -407,6 +430,7 @@ if __name__ == "__main__":
                 use_process_fallback=args.process_fallback,
                 fallback_key_frame_distance=args.fallback_key_frame_distance,
                 min_fallback_frames=args.min_fallback_frames,
+                fallback_try_mono=args.fallback_try_mono,
             )
         except Exception as exc:
             has_error = True
@@ -426,6 +450,7 @@ if __name__ == "__main__":
                 use_process_fallback=args.process_fallback,
                 fallback_key_frame_distance=args.fallback_key_frame_distance,
                 min_fallback_frames=args.min_fallback_frames,
+                fallback_try_mono=args.fallback_try_mono,
             )
         except Exception as exc:
             has_error = True

@@ -1131,12 +1131,18 @@ def full_steps(xlsx_path, data_root, config, steps):
                 print(f"\n==== Step 5, Smoothing camera for {scene_folder} {seq_name} ====")
                 proc_v1, proc_v2 = get_process_flags(seq_path, anchor_files[5], args.mode)
                 if proc_v1 or proc_v2:
+                    smooth_fallback_kfd = getattr(config_step[5], "fallback_key_frame_distance", None)
+                    smooth_min_frames = getattr(config_step[5], "min_fallback_frames", None)
+                    smooth_try_mono = getattr(config_step[5], "fallback_try_mono", None)
                     # cmd = f"python processor/smooth_camera.py {seq_path} --proc_v1 {proc_v1} --proc_v2 {proc_v2} --log_file {args.log_file}"
                     cmd = build_command_with_flags(
                         f"python processor/smooth_camera.py {seq_path}",
                         proc_v1=proc_v1,
                         proc_v2=proc_v2,
                         log_file=args.log_file,
+                        fallback_key_frame_distance=smooth_fallback_kfd,
+                        min_fallback_frames=smooth_min_frames,
+                        fallback_try_mono=smooth_try_mono,
                     )
                     run_cmd(cmd)
                 else:
