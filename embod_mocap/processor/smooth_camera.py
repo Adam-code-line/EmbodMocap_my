@@ -232,7 +232,7 @@ def save_camera_outputs(raw_dir, K, poses, timestamps, frame_ids):
     export_cameras_to_ply(poses, os.path.join(raw_dir, "cameras_sai.ply"))
 
 
-def process_view(seq_folder, view_name, down_scale, log_file, use_process_fallback=True, fallback_key_frame_distance=0.05):
+def process_view(seq_folder, view_name, down_scale, log_file, use_process_fallback=True, fallback_key_frame_distance=0.1):
     raw_dir = os.path.join(seq_folder, view_name)
     data_jsonl = os.path.join(raw_dir, "data.jsonl")
     if not os.path.exists(data_jsonl):
@@ -267,24 +267,42 @@ def process_view(seq_folder, view_name, down_scale, log_file, use_process_fallba
     if not use_process_fallback:
         raise RuntimeError(f"Smoothing failed for {raw_dir} and process fallback is disabled")
 
-    warning = (
-        f"Fallback enabled: rerun camera solve with sai-cli process for {raw_dir} "
-        f"(key_frame_distance={fallback_key_frame_distance})"
-    )
-    print(warning)
-    write_warning_to_log(log_file, warning)
+    kfd_candidates = []
+    for candidate in (fallback_key_frame_distance, 0.1, 0.15):
+        candidate = float(candidate)
+        if candidate not in kfd_candidates:
+            kfd_candidates.append(candidate)
 
     transforms_file = os.path.join(raw_dir, "transforms.json")
-    if os.path.exists(transforms_file):
-        os.remove(transforms_file)
-    run_cmd(f"sai-cli process {raw_dir}/ {raw_dir}/ --key_frame_distance {fallback_key_frame_distance}")
+    selected_kfd = None
+    for kfd in kfd_candidates:
+        warning = (
+            f"Fallback enabled: rerun camera solve with sai-cli process for {raw_dir} "
+            f"(key_frame_distance={kfd})"
+        )
+        print(warning)
+        write_warning_to_log(log_file, warning)
 
-    if not os.path.exists(transforms_file):
-        raise RuntimeError(f"Fallback failed: {transforms_file} was not generated")
+        if os.path.exists(transforms_file):
+            os.remove(transforms_file)
+
+        run_cmd(f"sai-cli process {raw_dir}/ {raw_dir}/ --key_frame_distance {kfd}")
+        if os.path.exists(transforms_file):
+            selected_kfd = kfd
+            break
+
+    if selected_kfd is None:
+        raise RuntimeError(
+            f"Fallback failed: {transforms_file} was not generated "
+            f"(tried key_frame_distance={kfd_candidates})"
+        )
 
     poses, timestamps, frame_ids = load_process_trajectory(transforms_file, frame_info)
     save_camera_outputs(raw_dir, K, poses, timestamps, frame_ids)
-    print(f"Smoothing camera for {seq_folder} {view_name} succeeded via process fallback")
+    print(
+        f"Smoothing camera for {seq_folder} {view_name} succeeded via process fallback "
+        f"(key_frame_distance={selected_kfd})"
+    )
 
 
 if __name__ == "__main__":
@@ -331,7 +349,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--fallback_key_frame_distance",
         type=float,
-        default=0.05,
+        default=0.1,
         help="key_frame_distance used when process fallback is triggered",
     )
     parser.set_defaults(process_fallback=True)

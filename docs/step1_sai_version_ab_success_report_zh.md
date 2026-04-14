@@ -35,9 +35,9 @@
 
 结果汇总：
 
-| Scene | default | mono | 关键日志 |
-|---|---|---|---|
-| scene_20260413_161617 | `exit=0` | `exit=0` | `Done!`, `output written to ...` |
+| Scene                 | default  | mono     | 关键日志                            |
+| --------------------- | -------- | -------- | ----------------------------------- |
+| scene_20260413_161617 | `exit=0` | `exit=0` | `Done!`, `output written to ...`    |
 | scene_20260413_201337 | `exit=0` | `exit=0` | `warning: Lost tracking!` + `Done!` |
 
 ## 4. 结论
@@ -57,11 +57,12 @@
 
 ### 5.1 推荐运行策略（双环境）
 
-推荐采用“Step1 在 `embodmocap_sai150`，主流程在 `embodmocap`”的双环境方案：
+推荐采用“Step1/Step5 在 `embodmocap_sai150`，其余主流程在 `embodmocap`”的双环境方案：
 
 1. `embodmocap_sai150`（spectacularAI 1.50.0）负责 Step1 建图。
-2. `embodmocap`（spectacularAI 1.35.0）负责 Step2-16 主流程，避免 torch/xformers/numpy 链式冲突扩大。
-3. 每次执行前先校验环境版本，防止跑错环境：
+2. `embodmocap`（spectacularAI 1.35.0）负责 Step2-4 与 Step6-16 主流程，避免 torch/xformers/numpy 链式冲突扩大。
+3. Step5（`smooth_camera`）也依赖 `sai-cli`，在边界样本上 1.35.0 可能对 `raw1/raw2` 报 `Smoothing failed: no output generated` 与 `Mapping failed: no output generated`，建议切到 `embodmocap_sai150` 执行。
+4. 每次执行前先校验环境版本，防止跑错环境：
    - `python -c "from importlib.metadata import version; print(version('spectacularAI'))"`
 
 ### 5.2 双环境完整执行命令（可直接复制）
@@ -99,21 +100,60 @@ for s in "$DATA_ROOT"/scene_*; do
   fi
 done
 
-# 3) 切回主环境跑 Step2-5
+# 3) 切回主环境跑 Step2-4
 conda activate embodmocap
 python -m pip install "spectacularAI==1.35.0"
 python -c "from importlib.metadata import version; print('spectacularAI=', version('spectacularAI'))"
-python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --config "$CFG" --steps 2-5 --mode overwrite
+python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --config "$CFG" --steps 2-4 --mode overwrite
 
-# 4) 填写/确认 seq_info.xlsx 中 v1_start、v2_start 后，再跑 Step6-16
+# 4) 切到 sai150 跑 Step5（关键：避免 1.35 在 raw1/raw2 上 no output）
+conda activate embodmocap_sai150
+python -c "from importlib.metadata import version; print('spectacularAI=', version('spectacularAI'))"
+python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --config "$CFG" --steps 5 --mode overwrite
+
+# 5) 检查 Step5 关键产物（每个 seq 应有 raw1/raw2 的 cameras_sai.npz）
+for s in "$DATA_ROOT"/scene_*; do
+  [ -d "$s" ] || continue
+  for q in "$s"/seq*; do
+    [ -d "$q" ] || continue
+    if [ -f "$q/raw1/cameras_sai.npz" ] && [ -f "$q/raw2/cameras_sai.npz" ]; then
+      echo "[OK] $q cameras_sai.npz"
+    else
+      echo "[MISSING] $q cameras_sai.npz"
+    fi
+  done
+done
+
+# 6) 填写/确认 seq_info.xlsx 中 v1_start、v2_start 后，再跑 Step6-16
+conda activate embodmocap
 python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --config "$CFG" --steps 6-16 --mode overwrite
 ```
 
-如果你已经确认 `v1_start`/`v2_start` 全部填写正确，也可直接执行：
+如果只需要对单个失败序列做 Step5 快速修复，可直接执行：
 
 ```bash
-conda activate embodmocap
-python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --config "$CFG" --steps 2-16 --mode overwrite
+conda activate embodmocap_sai150
+cd ~/EmbodMocap_dev/embod_mocap
+python processor/smooth_camera.py \
+  /home/wubin/EmbodMocap_dev/datasets/my_capture/scene_20260414_105442/seq0 \
+  --proc_v1 --proc_v2 --fallback_key_frame_distance 0.1
+```
+
+若上面仍失败，可尝试：
+
+```bash
+conda activate embodmocap_sai150
+cd ~/EmbodMocap_dev/embod_mocap
+
+sai-cli process \
+  /home/wubin/EmbodMocap_dev/datasets/my_capture/scene_20260414_105442/seq0/raw1/ \
+  /home/wubin/EmbodMocap_dev/datasets/my_capture/scene_20260414_105442/seq0/raw1/ \
+  --key_frame_distance 0.1
+
+sai-cli process \
+  /home/wubin/EmbodMocap_dev/datasets/my_capture/scene_20260414_105442/seq0/raw2/ \
+  /home/wubin/EmbodMocap_dev/datasets/my_capture/scene_20260414_105442/seq0/raw2/ \
+  --key_frame_distance 0.1
 ```
 
 补充说明（常见坑）：
@@ -122,7 +162,8 @@ python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --config "$CFG" --steps 2-
 2. 如果在 Step4/Step5 报 `NotADirectoryError: .../seq0/raw1/data.jsonl` 或 `.../raw1/data.mov: Not a directory`，通常是 `raw1`/`raw2` 被创建成“文件”而不是目录（常见于把 `recording_*.zip` 直接重命名成 `raw1/raw2`）。
 3. 处理方式二选一：
    - 方式 A（推荐，最小依赖）：在 `embodmocap_sai150` 里直接批量执行 `sai-cli process` 完成 Step1；
-  - 方式 B：给 `embodmocap_sai150` 补齐 `run_stages.py` 所需最小依赖后再运行。
+
+- 方式 B：给 `embodmocap_sai150` 补齐 `run_stages.py` 所需最小依赖后再运行。
 
 方式 A 命令示例：
 
@@ -154,6 +195,26 @@ python -c "import torch,imageio,pandas,yaml,tqdm,easydict,embod_mocap,huggingfac
 1. `transforms.json` 关键帧数量与轨迹连续性。
 2. `images/` 与点云输出完整性。
 3. Step2 网格重建结果是否存在明显退化。
+
+### 5.4 2026-04-14 新增故障说明（Step5）
+
+现象（日志关键字）：
+
+1. `Smoothing failed: no output generated`
+2. `Fallback enabled: rerun camera solve with sai-cli process ...`
+3. `Mapping failed: no output generated`
+4. `Fallback failed: .../raw1(transforms.json|raw2/transforms.json) was not generated`
+
+影响：
+
+1. `raw1/cameras_sai.npz`、`raw2/cameras_sai.npz` 缺失。
+2. Step6 `slice_views` 会因缺失相机轨迹而中断。
+
+判定：
+
+1. 日志中的 xformers `FutureWarning` 不是本次失败主因，可忽略。
+2. 主因仍是 SAI 版本鲁棒性差异：1.35.0 在边界样本的 `raw1/raw2` 上更容易 no output。
+3. 修复优先级：先切 `embodmocap_sai150` 跑 Step5，再继续后续步骤。
 
 ## 6. 回退策略（简要）
 

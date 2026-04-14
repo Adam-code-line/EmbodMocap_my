@@ -123,7 +123,7 @@ done
 
 ### 情况 A：1.50.0 能过
 
-说明：版本差异很可能是关键因素。推荐保持双环境：Step1 在 `$AB_ENV`，Step2-16 在 `$MAIN_ENV`。
+说明：版本差异很可能是关键因素。推荐保持双环境：Step1/Step5 在 `$AB_ENV`，Step2-4 与 Step6-16 在 `$MAIN_ENV`。
 
 后续动作：
 
@@ -140,11 +140,20 @@ conda activate "$AB_ENV"
 python -c "from importlib.metadata import version; print('spectacularAI=', version('spectacularAI'))"
 python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --config "$CFG" --steps 1 --mode overwrite
 
-# 2) 回主环境跑 Step2-5
+# 2) 回主环境跑 Step2-4
 conda activate "$MAIN_ENV"
 python -m pip install "spectacularAI==1.35.0"
 python -c "from importlib.metadata import version; print('spectacularAI=', version('spectacularAI'))"
-python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --config "$CFG" --steps 2-5 --mode overwrite
+python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --config "$CFG" --steps 2-4 --mode overwrite
+
+# 3) 回 AB 环境跑 Step5（避免 1.35 在 raw1/raw2 上 no output）
+conda activate "$AB_ENV"
+python -c "from importlib.metadata import version; print('spectacularAI=', version('spectacularAI'))"
+python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --config "$CFG" --steps 5 --mode overwrite
+
+# 4) 回主环境继续 Step6-16
+conda activate "$MAIN_ENV"
+python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --config "$CFG" --steps 6-16 --mode overwrite
 ```
 
 如果你明确要把主环境也升级为 1.50.0（不推荐，可能引入依赖冲突），再用：
@@ -205,7 +214,7 @@ conda create -n embodmocap_restore --file "$LOG_DIR/conda_explicit_${MAIN_ENV}_b
 ## 七、执行建议
 
 1. 先用隔离环境做 A/B，不要直接改主环境。
-2. 先跑 Step0，再单跑 Step1 成功，再继续 Step2-5，避免连锁报错干扰判断。
+2. 先跑 Step0，再单跑 Step1 成功，再继续 Step2-4，并把 Step5 放在 `$AB_ENV` 执行，避免连锁报错干扰判断。
 3. 每次改版本前都先做快照，确保可回退。
 
 ## 八、快速指令
@@ -235,9 +244,18 @@ conda activate "$AB_ENV"
 python -c "from importlib.metadata import version; print('spectacularAI=', version('spectacularAI'))"
 python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --config "$CFG" --steps 1 --mode overwrite
 
-# 2) Step2-5：切回主环境执行
+# 2) Step2-4：切回主环境执行
 conda activate "$MAIN_ENV"
 python -m pip install "spectacularAI==1.35.0"
 python -c "from importlib.metadata import version; print('spectacularAI=', version('spectacularAI'))"
-python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --config "$CFG" --steps 2-5 --mode overwrite
+python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --config "$CFG" --steps 2-4 --mode overwrite
+
+# 3) Step5：回 sai150 环境执行
+conda activate "$AB_ENV"
+python -c "from importlib.metadata import version; print('spectacularAI=', version('spectacularAI'))"
+python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --config "$CFG" --steps 5 --mode overwrite
+
+# 4) Step6-16：回主环境执行
+conda activate "$MAIN_ENV"
+python run_stages.py "$XLSX" --data_root "$DATA_ROOT" --config "$CFG" --steps 6-16 --mode overwrite
 ```
