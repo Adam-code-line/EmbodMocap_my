@@ -1174,7 +1174,8 @@ def full_steps(xlsx_path, data_root, config, steps):
                     if not is_complete:
                         raise RuntimeError(
                             f"Step 6 outputs incomplete for {seq_path}: {issues}. "
-                            "Likely causes: Step 4 raw images missing/empty, or invalid v1_start/v2_start. "
+                            "Likely causes: Step 4 raw images missing/empty, invalid v1_start/v2_start, "
+                            "or Step 5 camera frame_ids are duplicated/non-increasing. "
                             "Please rerun --steps 4,6 with --mode overwrite and verify raw1/images + raw2/images are non-empty."
                         )
 
