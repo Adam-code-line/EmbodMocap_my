@@ -1,9 +1,9 @@
-# 重新部署自动化服务（human Step0-15）+ Demo 可视化改 8081（含 SSH）
+# 重新部署自动化服务（human Step0-15）+ Demo 可视化改 8081（含公网直连/SSH）
 
 本文给你两组**可直接复制运行**的命令：
 
 1. 把 systemd user service：`~/.config/systemd/user/embodmocap-scene-auto.service` 的 `ExecStart=...auto_scene_mesh_service.py ...` 替换为**全流程** `auto_spectacular_rec_service.py`（human 自动跑 Step0-15）
-2. 把 demo 的 `tools/visualize_viser.py` 可视化端口换到 **8081**，并给出**同步 SSH 端口转发**命令
+2. 把 demo 的 `tools/visualize_viser.py` 可视化端口换到 **8081**，并给出「公网直连」与「SSH 端口转发」两种访问方式
 
 ---
 
@@ -109,11 +109,11 @@ journalctl --user -u embodmocap-scene-auto.service -n 200 --no-pager
 
 ---
 
-## 2) Demo 可视化改用 8081（并同步 SSH 转发）
+## 2) Demo 可视化改用 8081（公网直连 / SSH 转发）
 
 ### 2.1 在服务器启动 demo viewer（端口 8081）
 
-在服务器另开一个终端执行：
+在服务器另开一个终端执行（仅本机访问用 `--host 127.0.0.1`；要公网直连用 `--host 0.0.0.0`）：
 
 ```bash
 cd ~/EmbodMocap_dev/embod_mocap
@@ -123,13 +123,94 @@ conda run -n embodmocap python tools/visualize_viser.py \
   --stride 2 \
   --scene_mesh simple \
   --mesh_level 1 \
-  --host 127.0.0.1 \
+  --host 0.0.0.0 \
   --port 8081
 ```
 
-> 如果你本机已有东西占用 8081，把上面的 `--port 8081` 换成 `8082/8083/...`，并同步改下一步 SSH 转发端口。
+> 注意：Viser 默认无鉴权。公网直连前请确认端口放行策略（例如只放行固定 IP）。
+>
+> 如果你本机已有东西占用 8081，把上面的 `--port 8081` 换成 `8082/8083/...`，并同步修改后续访问方式里的端口。
 
-### 2.2 在本地电脑做 SSH 端口转发（把远程 8081 映射到本地 8081）
+### 2.1B（可选）把 demo viewer 也做成 systemd user service（推荐长期跑）
+
+> 这段会创建并启动：`~/.config/systemd/user/embodmocap-demo-viser8081.service`。
+
+**(1/3) 确认变量（如果你按第 1 节走过，这里一般已经有 CONDA_EXE）**
+
+```bash
+EMBOD_DIR="${EMBOD_DIR:-$HOME/EmbodMocap_dev/embod_mocap}"
+CONDA_EXE="${CONDA_EXE:-}"
+
+if [ -z "$CONDA_EXE" ]; then
+  CONDA_BASE="$(conda info --base)"
+  CONDA_EXE="$CONDA_BASE/bin/conda"
+  [ -x "$CONDA_EXE" ] || CONDA_EXE="$CONDA_BASE/condabin/conda"
+fi
+
+echo "[INFO] EMBOD_DIR=$EMBOD_DIR"
+echo "[INFO] CONDA_EXE=$CONDA_EXE"
+ls -l "$CONDA_EXE"
+```
+
+**(2/3) 写入 unit（8081，公网直连）**
+
+```bash
+mkdir -p "$HOME/.config/systemd/user"
+cat > "$HOME/.config/systemd/user/embodmocap-demo-viser8081.service" <<UNIT
+[Unit]
+Description=EmbodMocap Demo Viser Viewer (8081)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=$EMBOD_DIR
+Restart=always
+RestartSec=5
+ExecStart=$CONDA_EXE run -n embodmocap python tools/visualize_viser.py --xlsx ../datasets/release_demo.xlsx --data_root ../datasets/dataset_demo --stride 2 --scene_mesh simple --mesh_level 1 --host 0.0.0.0 --port 8081
+
+[Install]
+WantedBy=default.target
+UNIT
+```
+
+**(3/3) 重新加载并启动 demo service**
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now embodmocap-demo-viser8081.service
+systemctl --user status embodmocap-demo-viser8081.service --no-pager
+journalctl --user -u embodmocap-demo-viser8081.service -n 80 --no-pager
+```
+
+### 2.2 方案 A：公网 IP:8081 直连（无需 SSH）
+
+**(1/2) 放行端口 8081（防火墙 + 云安全组）**
+
+```bash
+# Ubuntu/Debian（ufw）
+sudo ufw allow 8081/tcp
+sudo ufw status | grep 8081 || true
+```
+
+```bash
+# CentOS/RHEL（firewalld）
+sudo firewall-cmd --permanent --add-port=8081/tcp
+sudo firewall-cmd --reload
+sudo firewall-cmd --list-ports | grep -E '(^| )8081/tcp( |$)' || true
+```
+
+并在云厂商控制台（安全组/防火墙）里允许入站 `TCP:8081`。
+
+**(2/2) 访问地址**
+
+```text
+http://<你的公网IP>:8081
+```
+
+> 例子：如果你在 `spatial_data_recorder/.env` 里使用了 `UPLOAD_BASE_URL=http://1080.alpen-y.top:8080`，
+> 那么 demo viewer 的公网访问通常就是：`http://1080.alpen-y.top:8081`（同域名 + 不同端口）。
+
+### 2.3 方案 B：本地电脑做 SSH 端口转发（更安全）
 
 在**本地电脑**执行（把 `<user>@<server>` 换成你的服务器登录信息）：
 
