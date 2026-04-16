@@ -153,6 +153,12 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1", help="Viser server host (default: 127.0.0.1).")
     parser.add_argument("--port", type=int, default=8080, help="Viser server port (default: 8080).")
     parser.add_argument(
+        "--auto_refresh_seconds",
+        type=float,
+        default=0.0,
+        help="Auto rescan scenes list every N seconds (0 disables).",
+    )
+    parser.add_argument(
         "--default_scene",
         default=None,
         help="Default scene folder name. If provided and exists, load it on start.",
@@ -244,6 +250,15 @@ def main() -> None:
         current_scene_name = scene_name
         print(f"[INFO] Showing scene={scene_name} (mesh_mode={mesh_mode})")
 
+    def refresh_scenes() -> None:
+        nonlocal scenes, scene_names
+        scenes = scan_scenes(data_root, scene_glob=args.scene_glob)
+        scene_names = sorted(scenes.keys()) or ["-"]
+        gui_scene_selector.options = scene_names
+        if gui_scene_selector.value not in scene_names:
+            gui_scene_selector.value = scene_names[0]
+        update_scene(gui_scene_selector.value, gui_mesh_mode.value)
+
     with server.gui.add_folder("Scene Mesh Preview"):
         gui_scene_selector = server.gui.add_dropdown("Scene", options=scene_names, initial_value=default_scene)
         gui_mesh_mode = server.gui.add_dropdown(
@@ -270,13 +285,7 @@ def main() -> None:
 
     @gui_refresh.on_click
     def _(_) -> None:
-        nonlocal scenes, scene_names
-        scenes = scan_scenes(data_root, scene_glob=args.scene_glob)
-        scene_names = sorted(scenes.keys()) or ["-"]
-        gui_scene_selector.options = scene_names
-        if gui_scene_selector.value not in scene_names:
-            gui_scene_selector.value = scene_names[0]
-        update_scene(gui_scene_selector.value, gui_mesh_mode.value)
+        refresh_scenes()
 
     @gui_share_btn.on_click
     def _(_) -> None:
@@ -300,8 +309,18 @@ def main() -> None:
     # Initial load.
     update_scene(gui_scene_selector.value, gui_mesh_mode.value)
 
+    last_refresh_t = time.time()
     while True:
-        time.sleep(1)
+        time.sleep(0.2)
+        if args.auto_refresh_seconds <= 0:
+            continue
+        if time.time() - last_refresh_t < args.auto_refresh_seconds:
+            continue
+        last_refresh_t = time.time()
+        try:
+            refresh_scenes()
+        except Exception as exc:
+            print(f"[WARN] Auto refresh failed: {exc}")
 
 
 if __name__ == "__main__":
