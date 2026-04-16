@@ -11,6 +11,7 @@
 1. 只看场景，不看人体。
 2. 只需要修改一个变量：`SCENE`。
 3. 如果场景 mesh 还没生成，会先补跑最小构建（Step1-2）。
+4. 启动 Viser 后可在 GUI 下拉中切换不同录制（只会列出已生成 mesh 的 scene）。
 
 参考来源：
 
@@ -57,7 +58,7 @@ ssh -p 22 wubin@1080.alpen-y.top
 cd ~/EmbodMocap_dev/embod_mocap
 
 export DATA_ROOT=../datasets/my_capture
-export SCENE=scene_20260414_183440
+export SCENE=recording_2026-04-15_23-33-13
 export XLSX_ALL=seq_info_all.xlsx
 export XLSX_ONE=seq_info_${SCENE}.xlsx
 export CFG=config_fast.yaml
@@ -91,36 +92,14 @@ python run_stages.py "$XLSX_ONE" --data_root "$DATA_ROOT" --config "$CFG" --step
 conda activate embodmocap
 python run_stages.py "$XLSX_ONE" --data_root "$DATA_ROOT" --config "$CFG" --steps 2 --mode overwrite --force_all
 
-export SCENE_PATH="$DATA_ROOT/$SCENE"
-
-python - <<'PY'
-import os
-import time
-from pathlib import Path
-import trimesh
-import viser
-
-scene = Path(os.environ["SCENE_PATH"]).expanduser().resolve()
-mesh_path = scene / "mesh_simplified.ply"
-if not mesh_path.exists():
-    mesh_path = scene / "mesh_raw.ply"
-if not mesh_path.exists():
-    raise SystemExit(f"No mesh found under {scene}. Step2 did not generate scene mesh.")
-
-mesh = trimesh.load(str(mesh_path))
-server = viser.ViserServer(port=8080)
-server.scene.set_up_direction("+z")
-server.scene.add_mesh_trimesh(
-    name="/scene/mesh",
-    mesh=mesh,
-    wxyz=(1.0, 0.0, 0.0, 0.0),
-    position=(0.0, 0.0, 0.0),
-)
-print("Scene preview started on remote :8080")
-print("Open local browser: http://127.0.0.1:18080")
-while True:
-    time.sleep(1)
-PY
+# 启动 Viser：在 GUI 里选择不同录制（scene），默认优先展示 mesh_raw.ply
+# - 你仍然只需要改 `SCENE`：上面保证该 scene 的 Step1-2 产物存在
+# - 其他已生成 mesh 的录制也会出现在下拉列表里，可直接切换预览
+python tools/preview_scene_meshes_viser.py \
+  --data_root "$DATA_ROOT" \
+  --default_scene "$SCENE" \
+  --mesh_mode prefer_raw \
+  --port 8080
 ```
 
 ## 4. 本地浏览器地址

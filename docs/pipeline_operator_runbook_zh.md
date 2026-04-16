@@ -262,39 +262,16 @@ python run_stages.py "$XLSX_ONE" --data_root "$DATA_ROOT" --config "$CFG" --step
 
 ### 7.4 启动“仅场景网格”预览服务（不依赖 optim_params.npz）
 
+启动后可在 Viser GUI 的下拉列表里切换不同录制（只会列出已生成 mesh 的 scene），并默认优先展示 `mesh_raw.ply`。
+
 ```bash
 conda activate embodmocap
 cd ~/EmbodMocap_dev/embod_mocap
-export SCENE_PATH="$DATA_ROOT/$SCENE"
-
-python - <<'PY'
-import time
-import os
-from pathlib import Path
-import trimesh
-import viser
-
-scene = Path(os.environ["SCENE_PATH"]).expanduser().resolve()
-mesh_path = scene / "mesh_simplified.ply"
-if not mesh_path.exists():
-  mesh_path = scene / "mesh_raw.ply"
-if not mesh_path.exists():
-  raise SystemExit(f"No mesh found under {scene}. Please run Step2 first.")
-
-mesh = trimesh.load(str(mesh_path))
-server = viser.ViserServer(port=8080)
-server.scene.set_up_direction("+z")
-server.scene.add_mesh_trimesh(
-  name="/scene/mesh",
-  mesh=mesh,
-  wxyz=(1.0, 0.0, 0.0, 0.0),
-  position=(0.0, 0.0, 0.0),
-)
-print("Scene preview started on remote :8080")
-print("Open local browser: http://127.0.0.1:18080")
-while True:
-  time.sleep(1)
-PY
+python tools/preview_scene_meshes_viser.py \
+  --data_root "$DATA_ROOT" \
+  --default_scene "$SCENE" \
+  --mesh_mode prefer_raw \
+  --port 8080
 ```
 
 保持这个终端不退出，然后在本地浏览器访问：
