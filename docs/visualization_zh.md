@@ -63,7 +63,7 @@ python tools/visualize_viser.py --scene_path /path/to/scene --port 8080 --max_fr
 
 ```bash
 cd embod_mocap
-python tools/visualize_viser.py --xlsx seq_info.xlsx --data_root /path/to/data --port 8080 --max_frames -1 --stride 2 --mesh_level 1 --scene_mesh simple
+python tools/visualize_viser.py --xlsx seq_info_all.xlsx --data_root /path/to/data --port 8080 --max_frames -1 --stride 2 --mesh_level 1 --scene_mesh simple
 ```
 
 注意：`--scene_path` 和 `--xlsx` 二选一，不能同时使用。
