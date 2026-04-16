@@ -82,12 +82,74 @@ conda run -n embodmocap python tools/preview_scene_meshes_viser.py \
   --print_share_url
 ```
 
-如果你的 `viser` 版本支持分享，你会在终端/日志里看到类似 `[INFO] Share URL: ...` 的链接；也可以在 GUI 的 `Actions -> Get Share URL` 按钮点击生成。
-把该 URL 发给别人即可直接在浏览器访问（无需每个人都做 SSH 端口转发）。
+如果你的 `viser` 版本支持分享，你会在终端/日志里看到类似 `[INFO] Share URL: ...` 的链接；也可以在 GUI 的 `Actions -> Get Share URL` 按钮点击生成。  
+注意：share 链接可能会因**服务重启/会话过期**变成 404；如果要一个更“稳定”的入口，建议用下面的“公网 IP:端口直连”（把 host 改成 `0.0.0.0` 并放行端口）。
 
 ---
 
-## 2. 本地电脑访问（SSH 端口转发）
+## 2. 外部访问 Viser（公网直连 / SSH 端口转发）
+
+### 2.1 方案 A：公网 IP + 端口直连（无需 SSH，最简单）
+
+适用场景：你们服务器有公网 IP（或已做端口映射），并且你愿意在防火墙/安全组放行端口。
+
+> 你已经部署了 `embodmocap-viser.service` 的话，按下面 **三段** 复制运行即可（默认端口 8080）：
+> 1) 改监听地址 -> 2) 放行端口 -> 3) 发访问链接
+
+**(1/4) 把 Viser 监听地址改为 0.0.0.0**  
+- 前台手动启动：把 `--host 127.0.0.1` 改成 `--host 0.0.0.0` 即可。  
+- 已用 systemd 跑 `embodmocap-viser.service`（推荐）：用下面命令一键替换并重启。
+
+```bash
+VISER_UNIT="$HOME/.config/systemd/user/embodmocap-viser.service"
+
+# 如果原来是 --host 127.0.0.1，就替换为 0.0.0.0（让外部能访问）
+sed -i 's/--host 127\.0\.0\.1/--host 0.0.0.0/g' "$VISER_UNIT"
+
+systemctl --user daemon-reload
+systemctl --user restart embodmocap-viser.service
+systemctl --user status embodmocap-viser.service --no-pager
+```
+
+> 想恢复“仅本机访问”，把 `0.0.0.0` 改回 `127.0.0.1` 并关闭端口即可。
+
+**(2/4) 放行端口（防火墙 + 云安全组）**  
+以 `8080` 为例（如果你改了端口，把 8080 换成你的端口）：
+
+```bash
+# Ubuntu/Debian（ufw）
+sudo ufw allow 8080/tcp
+sudo ufw status | grep 8080 || true
+```
+
+```bash
+# CentOS/RHEL（firewalld）
+sudo firewall-cmd --permanent --add-port=8080/tcp
+sudo firewall-cmd --reload
+sudo firewall-cmd --list-ports | grep -E '(^| )8080/tcp( |$)' || true
+```
+
+并在云厂商控制台（安全组/防火墙）里允许入站 `TCP:8080`。
+
+> 注意：Viser 默认无鉴权。请按需放行端口（例如只放行固定 IP）。
+
+**(3/4) 确认服务真的在监听**
+
+```bash
+ss -lntp | grep ':8080' || true
+journalctl --user -u embodmocap-viser.service -n 50 --no-pager
+```
+
+**(4/4) 让别人用浏览器打开**
+
+```text
+http://<你的公网IP>:8080
+```
+
+> 例子：如果你常用的公网域名是 `1080.alpen-y.top`（例如在 `spatial_data_recorder/.env` 里用过），
+> 那么这里的访问链接就是：`http://1080.alpen-y.top:8080`。
+
+### 2.2 方案 B：本地电脑访问（SSH 端口转发，更安全）
 
 在你的本地电脑执行（推荐后台）：
 
@@ -250,6 +312,7 @@ Type=simple
 WorkingDirectory=$EMBOD_DIR
 Restart=always
 RestartSec=5
+# 默认仅本机访问：--host 127.0.0.1；如果要公网直连，把它改成 0.0.0.0（并放行端口）
 ExecStart=$CONDA_EXE run -n embodmocap python tools/preview_scene_meshes_viser.py --data_root $DATA_ROOT --mesh_mode prefer_raw --auto_refresh_seconds 10 --host 127.0.0.1 --port $VISER_PORT
 
 [Install]
@@ -333,6 +396,7 @@ Type=simple
 WorkingDirectory=$EMBOD_DIR
 Restart=always
 RestartSec=5
+# 默认仅本机访问：--host 127.0.0.1；如果要公网直连，把它改成 0.0.0.0（并放行端口）
 ExecStart=$CONDA_EXE run -n embodmocap python tools/preview_scene_meshes_viser.py --data_root $DATA_ROOT --mesh_mode prefer_raw --auto_refresh_seconds 10 --host 127.0.0.1 --port $VISER_PORT
 
 [Install]
@@ -417,6 +481,7 @@ Type=simple
 WorkingDirectory=%h/EmbodMocap_dev/embod_mocap
 Restart=always
 RestartSec=5
+# 默认仅本机访问：--host 127.0.0.1；如果要公网直连，把它改成 0.0.0.0（并放行端口）
 ExecStart=conda run -n embodmocap python tools/preview_scene_meshes_viser.py --data_root ../datasets/my_capture --mesh_mode prefer_raw --auto_refresh_seconds 10 --host 127.0.0.1 --port 8080
 # 如果你希望服务启动时就打印 share 链接，额外加： --print_share_url
 
@@ -449,6 +514,39 @@ systemctl --user restart embodmocap-viser.service
 
 # 从日志里取 share 链接，发给别人即可
 journalctl --user -u embodmocap-viser.service -n 200 --no-pager | grep -E "Share URL|share"
+```
+
+#### 4.2.2 让别人用「公网 IP:端口」直接访问（无需 SSH / share）
+
+> 前提：你们机器确实有公网 IP（或已做端口映射），并且愿意在防火墙/云安全组放行端口。  
+> 注意：Viser 默认无鉴权。请按需放行端口（例如只放行固定 IP）。
+
+**(1/3) 修改 unit：让 Viser 监听 0.0.0.0（对外提供服务）**
+
+```bash
+VISER_UNIT="$HOME/.config/systemd/user/embodmocap-viser.service"
+
+sed -i 's/--host 127\.0\.0\.1/--host 0.0.0.0/g' "$VISER_UNIT"
+
+systemctl --user daemon-reload
+systemctl --user restart embodmocap-viser.service
+systemctl --user status embodmocap-viser.service --no-pager
+```
+
+**(2/3) 放行端口（以 8080 为例）**
+
+```bash
+# Ubuntu/Debian（ufw）
+sudo ufw allow 8080/tcp
+sudo ufw status | grep 8080 || true
+```
+
+并在云厂商控制台（安全组/防火墙）里允许入站 `TCP:8080`。
+
+**(3/3) 发给别人访问地址**
+
+```text
+http://<你的公网IP>:8080
 ```
 
 ---
