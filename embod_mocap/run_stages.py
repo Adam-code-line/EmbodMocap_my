@@ -739,6 +739,8 @@ def auto_generate_xlsx(data_root, out_xlsx='seq_info.xlsx'):
     
     rows = []
     for scene in sorted(os.listdir(data_root)):
+        if str(scene).startswith((".", "_")):
+            continue
         scene_path = os.path.join(data_root, scene)
         if not os.path.isdir(scene_path):
             continue

@@ -7,7 +7,8 @@
 3. 自动跑 Step1（`transforms.json`）与 Step2（`mesh_raw.ply`/`mesh_simplified.ply`）
 4. 通过 Viser 在浏览器里下拉选择不同 scene 并查看 mesh（优先 `mesh_raw.ply`）
 
-> 说明：本自动化只覆盖 **Step0/1/2**（场景建图预览）。人体相关 Step4+ 不在这里跑。
+> 说明：本文默认介绍 **Step0/1/2**（场景建图预览）的服务化。  
+> 如果你要按命名规范上传 Spectacular Rec 的 zip，并自动跑带人的 **Step0-15**，请使用 `tools/auto_spectacular_rec_service.py`（见 1.1B 与第 3 节）。
 
 ---
 
@@ -39,6 +40,32 @@ conda run -n embodmocap python tools/auto_scene_mesh_service.py \
   --auto_extract_seq_zips \
   --poll_interval 30
 ```
+
+### 1.1B 启动全流程自动化（Spectacular Rec 命名上传 + human Step0-15）
+
+在服务器执行（建议先看命名规范：`docs/spectacular_rec_upload_naming_zh.md`）：
+
+```bash
+cd ~/EmbodMocap_dev/embod_mocap
+
+# 该脚本会：
+# - 扫描 DATA_ROOT/_incoming 下新上传的 zip（按文件名解析 scene/type/seq/cam）
+# - scene-only：自动补跑 Step1/2（transforms + mesh）
+# - human：当同一 scene+seq 的双视角齐全后，自动跑 Step1 + Step2-4 + Step5 + Step6-15
+conda run -n embodmocap python tools/auto_spectacular_rec_service.py \
+  --data_root ../datasets/my_capture \
+  --incoming _incoming \
+  --config config_fast.yaml \
+  --conda conda \
+  --env_main embodmocap \
+  --env_sai embodmocap_sai150 \
+  --mode skip \
+  --poll_interval 30
+```
+
+常用开关：
+- 只想“整理目录/写 xlsx”，不想自动跑流程：加 `--no_auto_run`
+- 只跑场景 mesh（跳过 human）：加 `--skip_human_steps`
 
 ### 1.2 启动 Viser 预览（可在 GUI 下拉切换 scene）
 
@@ -74,6 +101,10 @@ ssh -p 22 -L 18080:127.0.0.1:8080 wubin@1080.alpen-y.top
 http://127.0.0.1:18080
 ```
 
+> 如果你把 Viser 服务端口改成了 `8081`（例如避免与 demo 的可视化冲突），记得同步改 SSH 转发：
+>
+> `ssh -p 22 -L 18081:127.0.0.1:8081 <user>@<server>`
+
 ---
 
 ## 3. 数据上传约定（推荐）
@@ -84,6 +115,9 @@ http://127.0.0.1:18080
 > - 命名规范：`docs/spectacular_rec_upload_naming_zh.md`
 > - 服务脚本：`embod_mocap/tools/auto_spectacular_rec_service.py`
 > - 上传目录：`datasets/my_capture/_incoming/`
+>
+> ⚠️ 注意：带 `__scene=...__type=...` 这种 token 的 zip **不要**直接丢到 `DATA_ROOT/` 根目录，
+> 否则可能被 `--auto_import_scene_zips` 误导入成奇怪的 scene 名。请统一放到 `_incoming/`。
 
 ### 3.1 方式 A：直接上传 scene 目录
 
@@ -193,7 +227,13 @@ WorkingDirectory=$EMBOD_DIR
 Restart=always
 RestartSec=5
 # 注意：auto_scene_mesh_service.py 内部还会调用 conda 跑 Step1/2，所以这里同时传 --conda
+# 仅场景 mesh（Step0-2）：
 ExecStart=$CONDA_EXE run -n embodmocap python tools/auto_scene_mesh_service.py --data_root $DATA_ROOT --config config_fast.yaml --xlsx_out seq_info_all.xlsx --auto_import_scene_zips --ensure_seq0 --auto_extract_seq_zips --poll_interval 30 --conda $CONDA_EXE
+# 全流程（Spectacular Rec 命名上传 + human Step0-15）替换为：
+# ExecStart=$CONDA_EXE run -n embodmocap python tools/auto_spectacular_rec_service.py --data_root $DATA_ROOT --incoming _incoming --config config_fast.yaml --conda $CONDA_EXE --env_main embodmocap --env_sai embodmocap_sai150 --mode skip --poll_interval 30
+#
+# 全流程（Spectacular Rec 命名上传 + human Step0-15）：把上面 ExecStart 替换为下面这一行：
+# ExecStart=$CONDA_EXE run -n embodmocap python tools/auto_spectacular_rec_service.py --data_root $DATA_ROOT --incoming _incoming --config config_fast.yaml --conda $CONDA_EXE --env_main embodmocap --env_sai embodmocap_sai150 --mode skip --poll_interval 30
 
 [Install]
 WantedBy=default.target
@@ -346,6 +386,8 @@ RestartSec=5
 # ExecStart=%h/miniconda3/bin/conda run -n embodmocap python tools/auto_scene_mesh_service.py ...
 # 注意：auto_scene_mesh_service.py 内部还会调用 conda 跑 Step1/2，所以建议同时传 --conda（同一个绝对路径）
 ExecStart=conda run -n embodmocap python tools/auto_scene_mesh_service.py --data_root ../datasets/my_capture --config config_fast.yaml --xlsx_out seq_info_all.xlsx --auto_import_scene_zips --ensure_seq0 --auto_extract_seq_zips --poll_interval 30 --conda conda
+# 全流程（Spectacular Rec 命名上传 + human Step0-15）替换为：
+# ExecStart=conda run -n embodmocap python tools/auto_spectacular_rec_service.py --data_root ../datasets/my_capture --incoming _incoming --config config_fast.yaml --conda conda --env_main embodmocap --env_sai embodmocap_sai150 --mode skip --poll_interval 30
 
 [Install]
 WantedBy=default.target

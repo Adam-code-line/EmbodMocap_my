@@ -64,7 +64,7 @@ def list_scene_dirs(data_root: Path) -> List[Path]:
         return []
     scene_dirs: List[Path] = []
     for p in sorted(data_root.iterdir()):
-        if p.name.startswith("."):
+        if p.name.startswith((".", "_")):
             continue
         if p.is_dir():
             scene_dirs.append(p)
