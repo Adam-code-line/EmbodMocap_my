@@ -284,6 +284,11 @@ http://127.0.0.1:18080
 
 该模式要求 seq 下已存在 `optim_params.npz`（通常 Step15 后才有）。
 
+方式 A（推荐，单服务）：直接使用第 7.4 节启动的 Viser，在 GUI 的 `Human Demo (SMPL + Scene)` 里选择 `Sequence` 并点击 `Load Human`，再用 `Frame`/`Play` 播放。  
+（前提：仓库根目录下 `body_models/smpl` 已准备好；可执行 `bash embod_mocap/tools/download_body_models.sh`）
+
+方式 B（兼容旧用法，单独脚本）：
+
 ```bash
 conda activate embodmocap
 cd ~/EmbodMocap_dev/embod_mocap

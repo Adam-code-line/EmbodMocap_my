@@ -82,6 +82,16 @@ conda run -n embodmocap python tools/preview_scene_meshes_viser.py \
   --print_share_url
 ```
 
+> 提示（已扩展）：同一个 `preview_scene_meshes_viser.py` 现在同时支持两类预览：
+> 1) **仅场景 Mesh**：查看 `mesh_raw.ply` / `mesh_simplified.ply`（不依赖 `optim_params.npz`）。
+> 2) **带人的渲染（SMPL + 场景）**：如果 `scene/seq*/optim_params.npz` 存在，可在 GUI 的 `Human Demo (SMPL + Scene)` 里选择 `Sequence` 并点击 `Load Human`，然后用 `Frame`/`Play` 进行播放。
+>
+> Human Demo 前提：
+> - `optim_params.npz` 已生成（通常 Step15 后才有）
+> - SMPL 资产已下载到仓库根目录的 `body_models/smpl`（可执行 `bash embod_mocap/tools/download_body_models.sh`）
+>
+> 性能建议：如果很卡，可重启时加参数例如：`--human_stride 2 --human_max_frames 600 --human_mesh_level 1`。
+
 如果你的 `viser` 版本支持分享，你会在终端/日志里看到类似 `[INFO] Share URL: ...` 的链接；也可以在 GUI 的 `Actions -> Get Share URL` 按钮点击生成。  
 注意：share 链接可能会因**服务重启/会话过期**变成 404；如果要一个更“稳定”的入口，建议用下面的“公网 IP:端口直连”（把 host 改成 `0.0.0.0` 并放行端口）。
 
