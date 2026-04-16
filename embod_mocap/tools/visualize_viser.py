@@ -327,6 +327,7 @@ class MotionSceneViewer:
         self,
         manifest,
         body_model,
+        host=None,
         port=8080,
         max_frames=-1,
         stride=1,
@@ -334,7 +335,17 @@ class MotionSceneViewer:
         scene_mesh='simple',
         mesh_level=1,
     ):
-        self.server = viser.ViserServer(port=port)
+        self.host = host
+        try:
+            if host is None:
+                self.server = viser.ViserServer(port=port)
+            else:
+                self.server = viser.ViserServer(host=host, port=port)
+        except OSError as exc:
+            raise RuntimeError(
+                f"Failed to start Viser server at host={host!r}, port={port}. "
+                f"The port may already be in use. Try a different port, e.g. '--port {port + 1}'."
+            ) from exc
         self.server.scene.set_up_direction("+z")
         self.port = port
 
@@ -964,7 +975,11 @@ class MotionSceneViewer:
         self.cam2_handle.position = c2w2[:3, 3]
 
     def run(self):
-        print(f"Viser server running at http://localhost:{self.port}")
+        display_host = self.host
+        if display_host is None or str(display_host).strip() in {"0.0.0.0", "::"}:
+            display_host = "localhost"
+        print(f"Viser server running at http://{display_host}:{self.port}")
+        print(f"[TIP] If you see another app on this port, re-run with '--port {self.port + 1}'.")
         print(f"Scenes loaded: {len(self.scene_keys)}")
         print(f"Current scene/seq: {self.scene_name}/{self.current_seq}")
 
@@ -1027,6 +1042,12 @@ def main():
     )
     parser.add_argument("--xlsx", type=str, default=None, help="xlsx manifest path (multi-scene mode, skips FAILED rows).")
     parser.add_argument("--data_root", type=str, default=None, help="Optional root prefixed to xlsx scene_folder.")
+    parser.add_argument(
+        "--host",
+        type=str,
+        default=None,
+        help="Viser server host. Default uses viser's default binding (often 0.0.0.0).",
+    )
     parser.add_argument("--port", type=int, default=8080, help="Viser server port.")
     parser.add_argument("--max_frames", type=int, default=-1, help="Maximum frames to load per sequence; -1 means all.")
     parser.add_argument("--stride", type=int, default=1, help="Frame sampling stride.")
@@ -1084,6 +1105,7 @@ def main():
     viewer = MotionSceneViewer(
         manifest=manifest,
         body_model=body_model,
+        host=args.host,
         port=args.port,
         max_frames=args.max_frames,
         stride=args.stride,

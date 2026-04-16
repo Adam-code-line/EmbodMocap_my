@@ -505,6 +505,10 @@ docker run --rm -it --gpus all \
   -v $DATA_ROOT/datasets:/workspace/EmbodMocap_dev/datasets \
   embodmocap:latest bash
 
+# 如果宿主机 8080 已被占用：改用 8081（端口映射和脚本参数要同时改）
+#   -p 8081:8081
+#   --port 8081
+
 # 容器内执行：
 python /workspace/EmbodMocap_dev/embod_mocap/tools/visualize_viser.py \
   --scene_path ../datasets/dataset_demo/0618_capture/0618livingroom1 \

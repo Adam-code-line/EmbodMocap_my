@@ -68,6 +68,8 @@ python tools/visualize_viser.py --xlsx seq_info_all.xlsx --data_root /path/to/da
 
 注意：`--scene_path` 和 `--xlsx` 二选一，不能同时使用。
 
+> 端口冲突提示：如果本机/容器的 `8080` 已被占用（例如另一个 Viser 服务正在跑），把命令里的 `--port 8080` 改成 `--port 8081`（或任意空闲端口），并确保你的 **Docker 端口映射**或 **SSH 端口转发**使用同一个端口。
+
 ### 参数：
 
 **输入模式（选择其一）：**
