@@ -80,6 +80,11 @@ http://127.0.0.1:18080
 
 自动化服务支持两种常用输入方式：
 
+> 如果你希望按“命名规范 + 自动跑 Step0-15（带人）”的方式上传，请改用：
+> - 命名规范：`docs/spectacular_rec_upload_naming_zh.md`
+> - 服务脚本：`embod_mocap/tools/auto_spectacular_rec_service.py`
+> - 上传目录：`datasets/my_capture/_incoming/`
+
 ### 3.1 方式 A：直接上传 scene 目录
 
 上传后的结构（示例）：
