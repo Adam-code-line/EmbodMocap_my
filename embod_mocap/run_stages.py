@@ -1628,9 +1628,17 @@ if __name__ == "__main__":
         with open(args.log_file, 'w') as f:
             f.write('')
 
-    if not args.xlsx:
-        print('Usage: python steps_all.py param.xlsx [--stage N] [--data_root xxx]')
+    if args.xlsx is None or str(args.xlsx).strip() == "":
+        parser.print_help()
+        print("\n[ERROR] Missing required positional argument: xlsx (path to seq_info_*.xlsx).")
+        print("[HINT] If you used an env var like $XLSX_ONE, make sure it is exported in the current shell:")
+        print("       echo \"$XLSX_ONE\"; ls -lah \"$XLSX_ONE\"")
         sys.exit(1)
+    if not os.path.exists(args.xlsx):
+        raise FileNotFoundError(
+            f"xlsx not found: {args.xlsx}. "
+            "If you used an env var like $XLSX_ONE, make sure it is set and points to an existing file."
+        )
     arg_steps = args.steps.split(',')
     steps = []
     for s in arg_steps:
