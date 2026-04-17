@@ -84,7 +84,8 @@ Type=simple
 WorkingDirectory=$EMBOD_DIR
 Restart=always
 RestartSec=5
-ExecStart=$CONDA_EXE run -n embodmocap python tools/auto_spectacular_rec_service.py --data_root $DATA_ROOT --incoming _incoming --config config_fast.yaml --conda $CONDA_EXE --env_main embodmocap --env_sai embodmocap_sai150 --mode skip --poll_interval 30
+# ✅ 推荐：开启 scene 级加锁 + 持久化日志（每个 scene/每个 step 单独 log 文件）
+ExecStart=$CONDA_EXE run -n embodmocap python tools/auto_spectacular_rec_service.py --data_root $DATA_ROOT --incoming _incoming --config config_fast.yaml --conda $CONDA_EXE --env_main embodmocap --env_sai embodmocap_sai150 --mode skip --poll_interval 30 --lock_dir _locks --log_dir _logs/auto_spectacular_rec_service
 
 [Install]
 WantedBy=default.target
@@ -103,6 +104,20 @@ systemctl --user status embodmocap-scene-auto.service --no-pager
 
 ```bash
 journalctl --user -u embodmocap-scene-auto.service -n 200 --no-pager
+```
+
+### 1.9 查看持久化日志 / scene 锁（推荐）
+
+> systemd journal 适合看“最近输出”；排查 Step3/Step8 这类偶发问题更推荐直接看落盘日志文件。
+
+```bash
+# 持久化日志（按 scene 分类）
+ls -lah "$EMBOD_DIR/$DATA_ROOT/_logs/auto_spectacular_rec_service" | head
+ls -lah "$EMBOD_DIR/$DATA_ROOT/_logs/auto_spectacular_rec_service/<SCENE_NAME>" | tail
+
+# scene 锁（防止同一 scene 并行互相覆盖）
+ls -lah "$EMBOD_DIR/$DATA_ROOT/_locks" | head
+cat "$EMBOD_DIR/$DATA_ROOT/_locks/<SCENE_NAME>.lock/meta.json" 2>/dev/null || true
 ```
 
 上传方式（提醒）：按命名规范把 zip 放到 `datasets/my_capture/_incoming/`，命名规范见：`docs/spectacular_rec_upload_naming_zh.md`。

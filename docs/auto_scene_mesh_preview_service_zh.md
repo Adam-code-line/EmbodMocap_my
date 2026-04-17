@@ -82,6 +82,16 @@ conda run -n embodmocap python tools/preview_scene_meshes_viser.py \
   --print_share_url
 ```
 
+> 提示（已扩展）：同一个 `preview_scene_meshes_viser.py` 现在同时支持两类预览：
+> 1) **仅场景 Mesh**：查看 `mesh_raw.ply` / `mesh_simplified.ply`（不依赖 `optim_params.npz`）。
+> 2) **带人的渲染（SMPL + 场景）**：如果 `scene/seq*/optim_params.npz` 存在，可在 GUI 的 `Human Demo (SMPL + Scene)` 里选择 `Sequence` 并点击 `Load Human`，然后用 `Frame`/`Play` 进行播放。
+>
+> Human Demo 前提：
+> - `optim_params.npz` 已生成（通常 Step15 后才有）
+> - SMPL 资产已下载到仓库根目录的 `body_models/smpl`（可执行 `bash embod_mocap/tools/download_body_models.sh`）
+>
+> 性能建议：如果很卡，可重启时加参数例如：`--human_stride 2 --human_max_frames 600 --human_mesh_level 1`。
+
 如果你的 `viser` 版本支持分享，你会在终端/日志里看到类似 `[INFO] Share URL: ...` 的链接；也可以在 GUI 的 `Actions -> Get Share URL` 按钮点击生成。  
 注意：share 链接可能会因**服务重启/会话过期**变成 404；如果要一个更“稳定”的入口，建议用下面的“公网 IP:端口直连”（把 host 改成 `0.0.0.0` 并放行端口）。
 
@@ -290,7 +300,7 @@ Restart=always
 RestartSec=5
 # 注意：auto_scene_mesh_service.py 内部还会调用 conda 跑 Step1/2，所以这里同时传 --conda
 # 仅场景 mesh（Step0-2）：
-ExecStart=$CONDA_EXE run -n embodmocap python tools/auto_scene_mesh_service.py --data_root $DATA_ROOT --config config_fast.yaml --xlsx_out seq_info_all.xlsx --auto_import_scene_zips --ensure_seq0 --auto_extract_seq_zips --poll_interval 30 --conda $CONDA_EXE
+ExecStart=$CONDA_EXE run -n embodmocap python tools/auto_scene_mesh_service.py --data_root $DATA_ROOT --config config_fast.yaml --xlsx_out seq_info_all.xlsx --auto_import_scene_zips --ensure_seq0 --auto_extract_seq_zips --poll_interval 30 --conda $CONDA_EXE --lock_dir _locks --log_dir _logs/auto_scene_mesh_service
 # 全流程（Spectacular Rec 命名上传 + human Step0-15）替换为：
 # ExecStart=$CONDA_EXE run -n embodmocap python tools/auto_spectacular_rec_service.py --data_root $DATA_ROOT --incoming _incoming --config config_fast.yaml --conda $CONDA_EXE --env_main embodmocap --env_sai embodmocap_sai150 --mode skip --poll_interval 30
 #
@@ -376,7 +386,7 @@ Type=simple
 WorkingDirectory=$EMBOD_DIR
 Restart=always
 RestartSec=5
-ExecStart=$CONDA_EXE run -n embodmocap python tools/auto_scene_mesh_service.py --data_root $DATA_ROOT --config config_fast.yaml --xlsx_out seq_info_all.xlsx --auto_import_scene_zips --ensure_seq0 --auto_extract_seq_zips --poll_interval 30 --conda $CONDA_EXE
+ExecStart=$CONDA_EXE run -n embodmocap python tools/auto_scene_mesh_service.py --data_root $DATA_ROOT --config config_fast.yaml --xlsx_out seq_info_all.xlsx --auto_import_scene_zips --ensure_seq0 --auto_extract_seq_zips --poll_interval 30 --conda $CONDA_EXE --lock_dir _locks --log_dir _logs/auto_scene_mesh_service
 
 [Install]
 WantedBy=default.target
@@ -449,7 +459,7 @@ RestartSec=5
 # 如果系统找不到 conda，把 conda 改成绝对路径，例如：
 # ExecStart=%h/miniconda3/bin/conda run -n embodmocap python tools/auto_scene_mesh_service.py ...
 # 注意：auto_scene_mesh_service.py 内部还会调用 conda 跑 Step1/2，所以建议同时传 --conda（同一个绝对路径）
-ExecStart=conda run -n embodmocap python tools/auto_scene_mesh_service.py --data_root ../datasets/my_capture --config config_fast.yaml --xlsx_out seq_info_all.xlsx --auto_import_scene_zips --ensure_seq0 --auto_extract_seq_zips --poll_interval 30 --conda conda
+ExecStart=conda run -n embodmocap python tools/auto_scene_mesh_service.py --data_root ../datasets/my_capture --config config_fast.yaml --xlsx_out seq_info_all.xlsx --auto_import_scene_zips --ensure_seq0 --auto_extract_seq_zips --poll_interval 30 --conda conda --lock_dir _locks --log_dir _logs/auto_scene_mesh_service
 # 全流程（Spectacular Rec 命名上传 + human Step0-15）替换为：
 # ExecStart=conda run -n embodmocap python tools/auto_spectacular_rec_service.py --data_root ../datasets/my_capture --incoming _incoming --config config_fast.yaml --conda conda --env_main embodmocap --env_sai embodmocap_sai150 --mode skip --poll_interval 30
 

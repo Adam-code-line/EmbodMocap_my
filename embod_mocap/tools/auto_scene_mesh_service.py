@@ -32,6 +32,8 @@ from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import pandas as pd
 
+from auto_service_utils import SceneLock, run_logged
+
 from embod_mocap.run_stages import (
     ensure_raw_input_ready,
     extract_recording_zip_to_raw,
@@ -380,15 +382,28 @@ def run_conda(
     env_name: str,
     argv: Sequence[str],
     cwd: Path,
+    log_path: Optional[Path] = None,
 ) -> int:
     cmd = [conda_exe, "run", "-n", env_name, *argv]
     log(f"[CMD] {' '.join(cmd)} (cwd={cwd})")
     try:
+        if log_path is not None:
+            return run_logged(cmd, cwd=cwd, log_path=log_path)
         proc = subprocess.run(cmd, cwd=str(cwd), check=False)
         return int(proc.returncode)
     except FileNotFoundError:
         log(f"[ERROR] conda not found: {conda_exe}")
         return 127
+
+
+def _cycle_id() -> str:
+    return time.strftime("%Y%m%d_%H%M%S")
+
+
+def _log_file(log_root: Path, scene: str, cycle_id: str, tag: str) -> Path:
+    safe_scene = scene.strip().replace(os.sep, "_")
+    safe_tag = tag.strip().replace(os.sep, "_")
+    return log_root / safe_scene / f"{cycle_id}__{safe_tag}.log"
 
 
 def main() -> None:
@@ -404,6 +419,24 @@ def main() -> None:
     parser.add_argument("--env_step2", default="embodmocap", help="Conda env for Step2")
     parser.add_argument("--mode", default="skip", choices=["skip", "overwrite"], help="run_stages.py --mode")
     parser.add_argument("--force_all", action="store_true", help="Pass --force_all to run_stages.py")
+    parser.add_argument(
+        "--lock_dir",
+        default="_locks",
+        help="Scene lock directory (default: DATA_ROOT/_locks). Use absolute path to override.",
+    )
+    parser.add_argument("--lock_wait_seconds", type=float, default=0.0, help="Wait up to N seconds for a scene lock (default: 0 = skip when busy)")
+    parser.add_argument("--lock_poll_seconds", type=float, default=2.0, help="Lock polling interval while waiting")
+    parser.add_argument(
+        "--lock_stale_seconds",
+        type=float,
+        default=0.0,
+        help="Auto-break stale locks older than N seconds (default: 0 = disabled). Only breaks when pid is gone on the same host.",
+    )
+    parser.add_argument(
+        "--log_dir",
+        default="_logs/auto_scene_mesh_service",
+        help="Persistent log root (default: DATA_ROOT/_logs/auto_scene_mesh_service). Use absolute path to override.",
+    )
     parser.add_argument("--run_once", action="store_true", help="Run one scan/build cycle then exit")
     parser.add_argument("--ensure_seq0", action="store_true", help="Create seq0 for scenes with no seq* dirs")
     parser.add_argument(
@@ -426,9 +459,18 @@ def main() -> None:
     data_root = (code_root / args.data_root).resolve() if not os.path.isabs(args.data_root) else Path(args.data_root).resolve()
     xlsx_out = (code_root / args.xlsx_out).resolve() if not os.path.isabs(args.xlsx_out) else Path(args.xlsx_out).resolve()
     cfg_path = args.config
+    lock_root = (data_root / args.lock_dir).resolve() if not os.path.isabs(args.lock_dir) else Path(args.lock_dir).resolve()
+    log_root = (data_root / args.log_dir).resolve() if not os.path.isabs(args.log_dir) else Path(args.log_dir).resolve()
+    lock_stale_seconds = args.lock_stale_seconds if args.lock_stale_seconds and args.lock_stale_seconds > 0 else None
 
     log(f"[START] data_root={data_root}")
     log(f"[START] code_root={code_root}")
+    log(f"[START] lock_root={lock_root} wait={args.lock_wait_seconds}s stale={lock_stale_seconds}")
+    log(f"[START] log_root={log_root}")
+
+    data_root.mkdir(parents=True, exist_ok=True)
+    log_root.mkdir(parents=True, exist_ok=True)
+    lock_root.mkdir(parents=True, exist_ok=True)
 
     while True:
         if args.auto_import_scene_zips:
@@ -485,59 +527,101 @@ def main() -> None:
 
         df = write_seq_info_xlsx(data_root=data_root, out_xlsx=xlsx_out, ensure_seq0_flag=args.ensure_seq0)
 
-        ready_for_step1 = [
-            s.name for s in statuses.values() if s.has_scene_raw and len(s.seq_dirs) > 0 and not s.has_transforms
-        ]
-        if ready_for_step1:
-            step1_xlsx = xlsx_out.with_name("seq_info_step1.xlsx")
-            write_filtered_xlsx(df, ready_for_step1, step1_xlsx)
-            step1_argv = [
-                "python",
-                "run_stages.py",
-                str(step1_xlsx),
-                "--data_root",
-                str(data_root),
-                "--config",
-                cfg_path,
-                "--steps",
-                "1",
-                "--mode",
-                args.mode,
-            ]
-            if args.force_all:
-                step1_argv.append("--force_all")
-            run_conda(args.conda, args.env_step1, step1_argv, cwd=code_root)
-        else:
-            log("[STEP1] Nothing to do")
+        cycle_id = _cycle_id()
 
-        statuses = {p.name: build_scene_status(p) for p in list_scene_dirs(data_root)}
+        def _acquire_scene_lock(scene_name: str) -> Optional[SceneLock]:
+            lock = SceneLock(
+                lock_root=lock_root,
+                scene=scene_name,
+                holder="auto_scene_mesh_service",
+                stale_seconds=lock_stale_seconds,
+            )
+            ok = lock.acquire(wait_seconds=args.lock_wait_seconds, poll_seconds=args.lock_poll_seconds)
+            if not ok:
+                meta = lock.read_meta_text().strip()
+                log(f"[LOCK] Skip {scene_name}: busy. meta={meta or '<missing>'}")
+                return None
+            return lock
 
-        ready_for_step2 = [
-            s.name
-            for s in statuses.values()
-            if s.has_scene_raw and s.has_transforms and len(s.seq_dirs) > 0 and (not s.has_mesh_raw)
-        ]
-        if ready_for_step2:
-            step2_xlsx = xlsx_out.with_name("seq_info_step2.xlsx")
-            write_filtered_xlsx(df, ready_for_step2, step2_xlsx)
-            step2_argv = [
-                "python",
-                "run_stages.py",
-                str(step2_xlsx),
-                "--data_root",
-                str(data_root),
-                "--config",
-                cfg_path,
-                "--steps",
-                "2",
-                "--mode",
-                args.mode,
-            ]
-            if args.force_all:
-                step2_argv.append("--force_all")
-            run_conda(args.conda, args.env_step2, step2_argv, cwd=code_root)
-        else:
-            log("[STEP2] Nothing to do")
+        did_work = False
+        for scene_name in sorted(statuses.keys()):
+            status = statuses[scene_name]
+            if not status.has_scene_raw or len(status.seq_dirs) == 0:
+                continue
+
+            need_step1 = not status.has_transforms
+            need_step2 = status.has_transforms and (not status.has_mesh_raw)
+            if not (need_step1 or need_step2):
+                continue
+
+            did_work = True
+            lock = _acquire_scene_lock(scene_name)
+            if lock is None:
+                continue
+            try:
+                if need_step1:
+                    step1_xlsx = xlsx_out.with_name(f"seq_info_step1__{scene_name}.xlsx")
+                    write_filtered_xlsx(df, [scene_name], step1_xlsx)
+                    step1_argv = [
+                        "python",
+                        "run_stages.py",
+                        str(step1_xlsx),
+                        "--data_root",
+                        str(data_root),
+                        "--config",
+                        cfg_path,
+                        "--steps",
+                        "1",
+                        "--mode",
+                        args.mode,
+                    ]
+                    if args.force_all:
+                        step1_argv.append("--force_all")
+                    rc = run_conda(
+                        args.conda,
+                        args.env_step1,
+                        step1_argv,
+                        cwd=code_root,
+                        log_path=_log_file(log_root, scene_name, cycle_id, "step1"),
+                    )
+                    if rc != 0:
+                        log(f"[STEP1] {scene_name} returned rc={rc}")
+
+                # Refresh after Step1: transforms.json may appear now.
+                scene_dir = data_root / scene_name
+                status = build_scene_status(scene_dir)
+                if status.has_scene_raw and status.has_transforms and len(status.seq_dirs) > 0 and (not status.has_mesh_raw):
+                    step2_xlsx = xlsx_out.with_name(f"seq_info_step2__{scene_name}.xlsx")
+                    write_filtered_xlsx(df, [scene_name], step2_xlsx)
+                    step2_argv = [
+                        "python",
+                        "run_stages.py",
+                        str(step2_xlsx),
+                        "--data_root",
+                        str(data_root),
+                        "--config",
+                        cfg_path,
+                        "--steps",
+                        "2",
+                        "--mode",
+                        args.mode,
+                    ]
+                    if args.force_all:
+                        step2_argv.append("--force_all")
+                    rc = run_conda(
+                        args.conda,
+                        args.env_step2,
+                        step2_argv,
+                        cwd=code_root,
+                        log_path=_log_file(log_root, scene_name, cycle_id, "step2"),
+                    )
+                    if rc != 0:
+                        log(f"[STEP2] {scene_name} returned rc={rc}")
+            finally:
+                lock.release()
+
+        if not did_work:
+            log("[AUTO] Nothing to do")
 
         if args.run_once:
             return

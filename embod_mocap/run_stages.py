@@ -6,6 +6,7 @@ import zipfile
 import pandas as pd
 import math
 import argparse
+import sqlite3
 from embod_mocap.processor.base import run_cmd
 from tqdm import tqdm
 import yaml
@@ -14,6 +15,24 @@ from easydict import EasyDict
 
 
 raw_files = ['calibration.json', 'data.jsonl', 'data.mov', 'frames2', 'metadata.json']
+
+
+def get_colmap_db_counts(db_path: str):
+    """
+    Return (num_images, num_keypoints, num_descriptors) from a COLMAP sqlite db.
+    Raises RuntimeError when the db cannot be opened or tables are missing.
+    """
+    try:
+        conn = sqlite3.connect(db_path)
+        try:
+            num_images = int(conn.execute("select count(*) from images").fetchone()[0])
+            num_keypoints = int(conn.execute("select count(*) from keypoints").fetchone()[0])
+            num_descriptors = int(conn.execute("select count(*) from descriptors").fetchone()[0])
+        finally:
+            conn.close()
+        return num_images, num_keypoints, num_descriptors
+    except Exception as exc:
+        raise RuntimeError(f"Failed to read COLMAP database stats from {db_path}: {exc}") from exc
 
 
 def get_bool_from_excel(row, column, default=False):
@@ -1002,10 +1021,10 @@ def full_steps(xlsx_path, data_root, config, steps):
 
         ################ step 3: rebuild colmap for the scene #################
         if 3 in steps:
+            db_path = os.path.join(scene_folder, 'colmap', 'database.db')
             if args.mode == 'overwrite' or not os.path.exists(os.path.join(scene_folder, anchor_files[3][0])):
                 print(f"\n==== Step 3, Rebuilding colmap for {scene_folder} ====")
                 run_cmd(f"source processor/rebuild_colmap.sh {scene_folder}")
-                db_path = os.path.join(scene_folder, 'colmap', 'database.db')
                 if not os.path.exists(db_path):
                     raise RuntimeError(
                         f"Step 3 failed: {db_path} was not generated. "
@@ -1013,6 +1032,15 @@ def full_steps(xlsx_path, data_root, config, steps):
                     )
             else:
                 print(f"Skip rebuilding colmap for {scene_folder}")
+
+            num_images, num_keypoints, num_descriptors = get_colmap_db_counts(db_path)
+            if num_images == 0 or num_keypoints == 0 or num_descriptors == 0:
+                raise RuntimeError(
+                    f"Step 3 failed: {db_path} looks empty "
+                    f"(images={num_images}, keypoints={num_keypoints}, descriptors={num_descriptors}). "
+                    "Please check rebuild_colmap.sh logs above, verify scene/images is populated, "
+                    "then rerun Step 3 with --mode overwrite."
+                )
 
             clean_cache_paths(scene_folder, [
                 'colmap/dense/stereo/depth_maps',
@@ -1204,7 +1232,16 @@ def full_steps(xlsx_path, data_root, config, steps):
             ################ step 8: calibrate human view cameras #################
             if 8 in steps:
                 print(f"\n==== Step 8, use colmap to calibrate human view cameras for {scene_folder} {seq_name} ====")
-                assert os.path.exists(os.path.join(scene_folder, 'colmap', 'database.db')), f"colmap database not found in {scene_folder}/colmap, please run step 2 first, check the LD_LIBRARY_PATH problem in QAs.md !!!"
+                db_path = os.path.join(scene_folder, 'colmap', 'database.db')
+                assert os.path.exists(db_path), f"colmap database not found in {scene_folder}/colmap, please run step 2 first, check the LD_LIBRARY_PATH problem in QAs.md !!!"
+                num_images, num_keypoints, num_descriptors = get_colmap_db_counts(db_path)
+                if num_images == 0 or num_keypoints == 0 or num_descriptors == 0:
+                    raise RuntimeError(
+                        f"Step 8 input invalid: scene COLMAP database is empty: {db_path} "
+                        f"(images={num_images}, keypoints={num_keypoints}, descriptors={num_descriptors}). "
+                        "This usually means Step 3 rebuild_colmap failed silently or was skipped after scene/images changed. "
+                        "Please rerun scene-level Step 3 with --mode overwrite, then rerun Step 8."
+                    )
 
                 proc_v1, proc_v2 = get_process_flags(seq_path, anchor_files[8], args.mode)
                 min_step8_frames = 3

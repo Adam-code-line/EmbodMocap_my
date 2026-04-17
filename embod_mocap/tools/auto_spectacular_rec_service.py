@@ -24,6 +24,7 @@ import argparse
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import tempfile
 import time
@@ -33,6 +34,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 import pandas as pd
+
+from auto_service_utils import SceneLock, run_logged
 
 from embod_mocap.run_stages import (
     raw_files,
@@ -570,15 +573,54 @@ def run_conda(
     env_name: str,
     argv: Sequence[str],
     cwd: Path,
+    log_path: Optional[Path] = None,
 ) -> int:
     cmd = [conda_exe, "run", "-n", env_name, *argv]
     log(f"[CMD] {' '.join(cmd)} (cwd={cwd})")
     try:
+        if log_path is not None:
+            return run_logged(cmd, cwd=cwd, log_path=log_path)
         proc = subprocess.run(cmd, cwd=str(cwd), check=False)
         return int(proc.returncode)
     except FileNotFoundError:
         log(f"[ERROR] conda not found: {conda_exe}")
         return 127
+
+
+def _cycle_id() -> str:
+    return time.strftime("%Y%m%d_%H%M%S")
+
+
+def _log_file(log_root: Path, scene: str, cycle_id: str, tag: str) -> Path:
+    safe_scene = scene.strip().replace(os.sep, "_")
+    safe_tag = tag.strip().replace(os.sep, "_")
+    return log_root / safe_scene / f"{cycle_id}__{safe_tag}.log"
+
+
+def _scene_colmap_db_counts(scene_dir: Path) -> Optional[Tuple[int, int, int]]:
+    db_path = scene_dir / "colmap" / "database.db"
+    if not db_path.exists():
+        return None
+    try:
+        conn = sqlite3.connect(str(db_path))
+        try:
+            num_images = int(conn.execute("select count(*) from images").fetchone()[0])
+            num_keypoints = int(conn.execute("select count(*) from keypoints").fetchone()[0])
+            num_descriptors = int(conn.execute("select count(*) from descriptors").fetchone()[0])
+        finally:
+            conn.close()
+        return num_images, num_keypoints, num_descriptors
+    except Exception as exc:
+        log(f"[WARN] Failed reading colmap database: {db_path} ({exc})")
+        return None
+
+
+def _scene_colmap_db_is_valid(scene_dir: Path) -> bool:
+    counts = _scene_colmap_db_counts(scene_dir)
+    if counts is None:
+        return False
+    num_images, num_keypoints, num_descriptors = counts
+    return (num_images > 0) and (num_keypoints > 0) and (num_descriptors > 0)
 
 
 def main() -> None:
@@ -595,6 +637,29 @@ def main() -> None:
     parser.add_argument("--xlsx_out", default="seq_info_all.xlsx", help="xlsx index output (overwritten)")
     parser.add_argument("--mode", default="skip", choices=["skip", "overwrite"], help="run_stages.py --mode (and ingest overwrite behavior)")
     parser.add_argument("--force_all", action="store_true", help="Pass --force_all to run_stages.py")
+    parser.add_argument(
+        "--lock_dir",
+        default="_locks",
+        help="Scene lock directory (default: DATA_ROOT/_locks). Use absolute path to override.",
+    )
+    parser.add_argument("--lock_wait_seconds", type=float, default=0.0, help="Wait up to N seconds for a scene lock (default: 0 = skip when busy)")
+    parser.add_argument("--lock_poll_seconds", type=float, default=2.0, help="Lock polling interval while waiting")
+    parser.add_argument(
+        "--lock_stale_seconds",
+        type=float,
+        default=0.0,
+        help="Auto-break stale locks older than N seconds (default: 0 = disabled). Only breaks when pid is gone on the same host.",
+    )
+    parser.add_argument(
+        "--log_dir",
+        default="_logs/auto_spectacular_rec_service",
+        help="Persistent log root (default: DATA_ROOT/_logs/auto_spectacular_rec_service). Use absolute path to override.",
+    )
+    parser.add_argument(
+        "--no_auto_fix_empty_colmap_db",
+        action="store_true",
+        help="Do not auto-run Step 3 when scene colmap/database.db is missing/empty (may cause Step 8 failures).",
+    )
     parser.add_argument("--no_auto_run", action="store_true", help="Only ingest + write xlsx; do not run any pipeline steps")
     parser.add_argument("--skip_scene_steps", action="store_true", help="Do not run scene-only Step1/2 automation")
     parser.add_argument("--skip_human_steps", action="store_true", help="Do not run human Step0-15 automation")
@@ -605,13 +670,20 @@ def main() -> None:
     data_root = (code_root / args.data_root).resolve() if not os.path.isabs(args.data_root) else Path(args.data_root).resolve()
     incoming_dir = data_root / args.incoming
     xlsx_out = (code_root / args.xlsx_out).resolve() if not os.path.isabs(args.xlsx_out) else Path(args.xlsx_out).resolve()
+    lock_root = (data_root / args.lock_dir).resolve() if not os.path.isabs(args.lock_dir) else Path(args.lock_dir).resolve()
+    log_root = (data_root / args.log_dir).resolve() if not os.path.isabs(args.log_dir) else Path(args.log_dir).resolve()
+    lock_stale_seconds = args.lock_stale_seconds if args.lock_stale_seconds and args.lock_stale_seconds > 0 else None
 
     log(f"[START] data_root={data_root}")
     log(f"[START] incoming_dir={incoming_dir}")
     log(f"[START] mode={args.mode} config={args.config}")
+    log(f"[START] lock_root={lock_root} wait={args.lock_wait_seconds}s stale={lock_stale_seconds}")
+    log(f"[START] log_root={log_root}")
 
     data_root.mkdir(parents=True, exist_ok=True)
     incoming_dir.mkdir(parents=True, exist_ok=True)
+    log_root.mkdir(parents=True, exist_ok=True)
+    lock_root.mkdir(parents=True, exist_ok=True)
 
     bad_dir = incoming_dir / "_bad"
     bad_dir.mkdir(parents=True, exist_ok=True)
@@ -658,147 +730,265 @@ def main() -> None:
         df_all = write_seq_info_xlsx(data_root=data_root, out_xlsx=xlsx_out)
 
         if not args.no_auto_run:
-            # 1) Scene-only build: Step1 + Step2 (mesh preview).
+            cycle_id = _cycle_id()
+
+            def _acquire_scene_lock(scene_name: str) -> Optional[SceneLock]:
+                lock = SceneLock(
+                    lock_root=lock_root,
+                    scene=scene_name,
+                    holder="auto_spectacular_rec_service",
+                    stale_seconds=lock_stale_seconds,
+                )
+                ok = lock.acquire(wait_seconds=args.lock_wait_seconds, poll_seconds=args.lock_poll_seconds)
+                if not ok:
+                    meta = lock.read_meta_text().strip()
+                    log(f"[LOCK] Skip {scene_name}: busy. meta={meta or '<missing>'}")
+                    return None
+                return lock
+
+            # 1) Scene-only build: Step1 + Step2 (mesh preview), per scene with locking.
             if not args.skip_scene_steps:
                 statuses = {p.name: build_scene_status(p) for p in list_scene_dirs(data_root)}
-                ready_for_step1 = [
-                    s.name for s in statuses.values() if s.has_scene_raw and len(s.seq_dirs) > 0 and not s.has_transforms
-                ]
-                if ready_for_step1:
-                    step1_xlsx = xlsx_out.with_name("seq_info_step1.xlsx")
-                    write_filtered_xlsx(df_all, ready_for_step1, step1_xlsx)
-                    step1_argv = [
-                        "python",
-                        "run_stages.py",
-                        str(step1_xlsx),
-                        "--data_root",
-                        str(data_root),
-                        "--config",
-                        args.config,
-                        "--steps",
-                        "1",
-                        "--mode",
-                        args.mode,
-                    ]
-                    if args.force_all:
-                        step1_argv.append("--force_all")
-                    run_conda(args.conda, args.env_sai, step1_argv, cwd=code_root)
-                else:
-                    log("[STEP1] Nothing to do")
+                did_work = False
+                for scene_name in sorted(statuses.keys()):
+                    status = statuses[scene_name]
+                    if not status.has_scene_raw or len(status.seq_dirs) == 0:
+                        continue
 
-                statuses = {p.name: build_scene_status(p) for p in list_scene_dirs(data_root)}
-                ready_for_step2 = [
-                    s.name
-                    for s in statuses.values()
-                    if s.has_scene_raw and s.has_transforms and len(s.seq_dirs) > 0 and (not s.has_mesh_raw)
-                ]
-                if ready_for_step2:
-                    step2_xlsx = xlsx_out.with_name("seq_info_step2.xlsx")
-                    write_filtered_xlsx(df_all, ready_for_step2, step2_xlsx)
-                    step2_argv = [
-                        "python",
-                        "run_stages.py",
-                        str(step2_xlsx),
-                        "--data_root",
-                        str(data_root),
-                        "--config",
-                        args.config,
-                        "--steps",
-                        "2",
-                        "--mode",
-                        args.mode,
-                    ]
-                    if args.force_all:
-                        step2_argv.append("--force_all")
-                    run_conda(args.conda, args.env_main, step2_argv, cwd=code_root)
-                else:
-                    log("[STEP2] Nothing to do")
+                    need_step1 = not status.has_transforms
+                    need_step2 = status.has_transforms and (not status.has_mesh_raw)
+                    if not (need_step1 or need_step2):
+                        continue
 
-            # 2) Human full pipeline: Step2-4 (main), Step5 (sai), Step6-15 (main).
+                    did_work = True
+                    lock = _acquire_scene_lock(scene_name)
+                    if lock is None:
+                        continue
+                    try:
+                        if need_step1:
+                            step1_xlsx = xlsx_out.with_name(f"seq_info_step1__{scene_name}.xlsx")
+                            write_filtered_xlsx(df_all, [scene_name], step1_xlsx)
+                            step1_argv = [
+                                "python",
+                                "run_stages.py",
+                                str(step1_xlsx),
+                                "--data_root",
+                                str(data_root),
+                                "--config",
+                                args.config,
+                                "--steps",
+                                "1",
+                                "--mode",
+                                args.mode,
+                            ]
+                            if args.force_all:
+                                step1_argv.append("--force_all")
+                            rc = run_conda(
+                                args.conda,
+                                args.env_sai,
+                                step1_argv,
+                                cwd=code_root,
+                                log_path=_log_file(log_root, scene_name, cycle_id, "scene_step1"),
+                            )
+                            if rc != 0:
+                                log(f"[SCENE] {scene_name} Step1 returned rc={rc}")
+
+                        # Refresh status after Step1 (transforms.json may appear now).
+                        scene_dir = data_root / scene_name
+                        status = build_scene_status(scene_dir)
+                        if status.has_scene_raw and status.has_transforms and len(status.seq_dirs) > 0 and (not status.has_mesh_raw):
+                            step2_xlsx = xlsx_out.with_name(f"seq_info_step2__{scene_name}.xlsx")
+                            write_filtered_xlsx(df_all, [scene_name], step2_xlsx)
+                            step2_argv = [
+                                "python",
+                                "run_stages.py",
+                                str(step2_xlsx),
+                                "--data_root",
+                                str(data_root),
+                                "--config",
+                                args.config,
+                                "--steps",
+                                "2",
+                                "--mode",
+                                args.mode,
+                            ]
+                            if args.force_all:
+                                step2_argv.append("--force_all")
+                            rc = run_conda(
+                                args.conda,
+                                args.env_main,
+                                step2_argv,
+                                cwd=code_root,
+                                log_path=_log_file(log_root, scene_name, cycle_id, "scene_step2"),
+                            )
+                            if rc != 0:
+                                log(f"[SCENE] {scene_name} Step2 returned rc={rc}")
+                    finally:
+                        lock.release()
+
+                if not did_work:
+                    log("[SCENE] Nothing to do")
+
+            # 2) Human full pipeline, per scene with locking:
+            #    Step1 (sai env) -> Step3 (main env, only if db missing/empty) -> Step2-4 (main) -> Step5 (sai) -> Step6-15 (main)
             if not args.skip_human_steps:
                 human_xlsx = xlsx_out.with_name("seq_info_human_autorun.xlsx")
                 df_human = write_human_autorun_xlsx(data_root=data_root, out_xlsx=human_xlsx, require_transforms=False)
                 if df_human.empty:
                     log("[HUMAN] Nothing to do (no ready human sequences).")
                 else:
-                    step1h_argv = [
-                        "python",
-                        "run_stages.py",
-                        str(human_xlsx),
-                        "--data_root",
-                        str(data_root),
-                        "--config",
-                        args.config,
-                        "--steps",
-                        "1",
-                        "--mode",
-                        args.mode,
-                    ]
-                    if args.force_all:
-                        step1h_argv.append("--force_all")
-                    run_conda(args.conda, args.env_sai, step1h_argv, cwd=code_root)
+                    scenes_human = sorted(set(df_human["scene_folder"].astype(str)))
+                    for scene_name in scenes_human:
+                        lock = _acquire_scene_lock(scene_name)
+                        if lock is None:
+                            continue
+                        try:
+                            scene_dir = data_root / scene_name
+                            scene_xlsx = xlsx_out.with_name(f"seq_info_human__{scene_name}.xlsx")
+                            write_filtered_xlsx(df_human, [scene_name], scene_xlsx)
 
-                    human_ready_xlsx = xlsx_out.with_name("seq_info_human_ready.xlsx")
-                    df_human_ready = write_human_autorun_xlsx(
-                        data_root=data_root,
-                        out_xlsx=human_ready_xlsx,
-                        require_transforms=True,
-                    )
-                    if df_human_ready.empty:
-                        log("[HUMAN] Waiting for transforms.json (Step1) to be ready.")
-                        # No sequences are ready for Step2+ yet.
-                        pass
-                    else:
-                        step24_argv = [
-                            "python",
-                            "run_stages.py",
-                            str(human_ready_xlsx),
-                            "--data_root",
-                            str(data_root),
-                            "--config",
-                            args.config,
-                            "--steps",
-                            "2-4",
-                            "--mode",
-                            args.mode,
-                        ]
-                        if args.force_all:
-                            step24_argv.append("--force_all")
-                        run_conda(args.conda, args.env_main, step24_argv, cwd=code_root)
+                            step1_argv = [
+                                "python",
+                                "run_stages.py",
+                                str(scene_xlsx),
+                                "--data_root",
+                                str(data_root),
+                                "--config",
+                                args.config,
+                                "--steps",
+                                "1",
+                                "--mode",
+                                args.mode,
+                            ]
+                            if args.force_all:
+                                step1_argv.append("--force_all")
+                            rc = run_conda(
+                                args.conda,
+                                args.env_sai,
+                                step1_argv,
+                                cwd=code_root,
+                                log_path=_log_file(log_root, scene_name, cycle_id, "human_step1"),
+                            )
+                            if rc != 0:
+                                log(f"[HUMAN] Skip {scene_name}: Step1 returned rc={rc}")
+                                continue
 
-                        step5_argv = [
-                            "python",
-                            "run_stages.py",
-                            str(human_ready_xlsx),
-                            "--data_root",
-                            str(data_root),
-                            "--config",
-                            args.config,
-                            "--steps",
-                            "5",
-                            "--mode",
-                            args.mode,
-                        ]
-                        if args.force_all:
-                            step5_argv.append("--force_all")
-                        run_conda(args.conda, args.env_sai, step5_argv, cwd=code_root)
+                            status = build_scene_status(scene_dir)
+                            if not status.has_transforms:
+                                log(f"[HUMAN] Skip {scene_name}: transforms.json missing after Step1")
+                                continue
 
-                        step615_argv = [
-                            "python",
-                            "run_stages.py",
-                            str(human_ready_xlsx),
-                            "--data_root",
-                            str(data_root),
-                            "--config",
-                            args.config,
-                            "--steps",
-                            "6-15",
-                            "--mode",
-                            args.mode,
-                        ]
-                        if args.force_all:
-                            step615_argv.append("--force_all")
-                        run_conda(args.conda, args.env_main, step615_argv, cwd=code_root)
+                            if not args.no_auto_fix_empty_colmap_db:
+                                if not _scene_colmap_db_is_valid(scene_dir):
+                                    log(f"[STEP3] {scene_name}: scene colmap database missing/empty, rebuilding with --mode overwrite")
+                                    step3_argv = [
+                                        "python",
+                                        "run_stages.py",
+                                        str(scene_xlsx),
+                                        "--data_root",
+                                        str(data_root),
+                                        "--config",
+                                        args.config,
+                                        "--steps",
+                                        "3",
+                                        "--mode",
+                                        "overwrite",
+                                    ]
+                                    if args.force_all:
+                                        step3_argv.append("--force_all")
+                                    rc = run_conda(
+                                        args.conda,
+                                        args.env_main,
+                                        step3_argv,
+                                        cwd=code_root,
+                                        log_path=_log_file(log_root, scene_name, cycle_id, "human_step3_overwrite"),
+                                    )
+                                    if rc != 0:
+                                        log(f"[STEP3] {scene_name}: rebuild returned rc={rc}. Skip Step2+")
+                                        continue
+                                    if not _scene_colmap_db_is_valid(scene_dir):
+                                        counts = _scene_colmap_db_counts(scene_dir)
+                                        log(f"[STEP3] {scene_name}: rebuild did not produce a valid database. counts={counts}. Skip Step2+")
+                                        continue
+
+                            step24_argv = [
+                                "python",
+                                "run_stages.py",
+                                str(scene_xlsx),
+                                "--data_root",
+                                str(data_root),
+                                "--config",
+                                args.config,
+                                "--steps",
+                                "2-4",
+                                "--mode",
+                                args.mode,
+                            ]
+                            if args.force_all:
+                                step24_argv.append("--force_all")
+                            rc = run_conda(
+                                args.conda,
+                                args.env_main,
+                                step24_argv,
+                                cwd=code_root,
+                                log_path=_log_file(log_root, scene_name, cycle_id, "human_step24"),
+                            )
+                            if rc != 0:
+                                log(f"[HUMAN] Skip {scene_name}: Step2-4 returned rc={rc}")
+                                continue
+
+                            step5_argv = [
+                                "python",
+                                "run_stages.py",
+                                str(scene_xlsx),
+                                "--data_root",
+                                str(data_root),
+                                "--config",
+                                args.config,
+                                "--steps",
+                                "5",
+                                "--mode",
+                                args.mode,
+                            ]
+                            if args.force_all:
+                                step5_argv.append("--force_all")
+                            rc = run_conda(
+                                args.conda,
+                                args.env_sai,
+                                step5_argv,
+                                cwd=code_root,
+                                log_path=_log_file(log_root, scene_name, cycle_id, "human_step5"),
+                            )
+                            if rc != 0:
+                                log(f"[HUMAN] Skip {scene_name}: Step5 returned rc={rc}")
+                                continue
+
+                            step615_argv = [
+                                "python",
+                                "run_stages.py",
+                                str(scene_xlsx),
+                                "--data_root",
+                                str(data_root),
+                                "--config",
+                                args.config,
+                                "--steps",
+                                "6-15",
+                                "--mode",
+                                args.mode,
+                            ]
+                            if args.force_all:
+                                step615_argv.append("--force_all")
+                            rc = run_conda(
+                                args.conda,
+                                args.env_main,
+                                step615_argv,
+                                cwd=code_root,
+                                log_path=_log_file(log_root, scene_name, cycle_id, "human_step615"),
+                            )
+                            if rc != 0:
+                                log(f"[HUMAN] {scene_name} Step6-15 returned rc={rc}")
+                        finally:
+                            lock.release()
 
         if args.run_once:
             return
