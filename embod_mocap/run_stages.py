@@ -35,6 +35,63 @@ def get_colmap_db_counts(db_path: str):
         raise RuntimeError(f"Failed to read COLMAP database stats from {db_path}: {exc}") from exc
 
 
+def get_colmap_db_image_names(db_path: str):
+    """
+    Return a set of image names stored in COLMAP database `images` table.
+    """
+    try:
+        conn = sqlite3.connect(db_path)
+        try:
+            rows = conn.execute("select name from images").fetchall()
+        finally:
+            conn.close()
+        return {str(r[0]) for r in rows}
+    except Exception as exc:
+        raise RuntimeError(f"Failed to read COLMAP database image names from {db_path}: {exc}") from exc
+
+
+def read_non_empty_lines(txt_path: str):
+    lines = []
+    with open(txt_path, "r", encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            lines.append(line)
+    return lines
+
+
+def read_colmap_images_txt_image_names(images_txt_path: str):
+    """
+    Parse COLMAP text model `images.txt` and return the unique image_name list.
+
+    COLMAP format alternates:
+      - image header line: IMAGE_ID QW QX QY QZ TX TY TZ CAMERA_ID NAME
+      - points2D line
+    """
+    names = []
+    seen = set()
+    with open(images_txt_path, "r", encoding="utf-8") as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split()
+            if len(parts) < 10:
+                continue
+            try:
+                int(parts[0])
+                int(parts[8])
+            except Exception:
+                continue
+            name = str(parts[9])
+            if name in seen:
+                continue
+            seen.add(name)
+            names.append(name)
+    return names
+
+
 def get_bool_from_excel(row, column, default=False):
     """Read a boolean value from an Excel row with a default fallback.
     
@@ -1042,6 +1099,36 @@ def full_steps(xlsx_path, data_root, config, steps):
                     "then rerun Step 3 with --mode overwrite."
                 )
 
+            # Validate db names match the scene sparse model.
+            expected_names = []
+            image_list_path = os.path.join(scene_folder, "colmap", "image-list.txt")
+            sparse_images_txt = os.path.join(scene_folder, "colmap", "sparse", "0", "images.txt")
+            if os.path.exists(image_list_path):
+                expected_names = read_non_empty_lines(image_list_path)
+            elif os.path.exists(sparse_images_txt):
+                expected_names = read_colmap_images_txt_image_names(sparse_images_txt)
+
+            if expected_names:
+                db_names = get_colmap_db_image_names(db_path)
+                missing = [n for n in expected_names if n not in db_names]
+                if missing:
+                    sample = missing[:8]
+                    raise RuntimeError(
+                        "Step 3 failed: scene COLMAP database is incomplete (sparse model/database mismatch). "
+                        f"Missing {len(missing)}/{len(expected_names)} sparse images in database images table. "
+                        f"Example missing: {sample}. "
+                        "This usually means rebuild_colmap.sh (colmap feature_extractor/matcher) failed early or was interrupted, "
+                        "or Step 3/Step 8 ran concurrently and Step 8 copied a half-built database. "
+                        "Please inspect Step 3 logs (search for feature_extractor/exhaustive_matcher errors), "
+                        "ensure scene automation is locked/serialized, then rerun Step 3 with --mode overwrite."
+                    )
+                if num_keypoints < len(expected_names) or num_descriptors < len(expected_names):
+                    raise RuntimeError(
+                        "Step 3 failed: scene COLMAP database has too few extracted features. "
+                        f"sparse_images={len(expected_names)}, images={num_images}, keypoints_rows={num_keypoints}, descriptors_rows={num_descriptors}. "
+                        "Please inspect rebuild_colmap.sh logs above and rerun Step 3 with --mode overwrite."
+                    )
+
             clean_cache_paths(scene_folder, [
                 'colmap/dense/stereo/depth_maps',
                 'colmap/dense/stereo/normal_maps'
@@ -1242,6 +1329,28 @@ def full_steps(xlsx_path, data_root, config, steps):
                         "This usually means Step 3 rebuild_colmap failed silently or was skipped after scene/images changed. "
                         "Please rerun scene-level Step 3 with --mode overwrite, then rerun Step 8."
                     )
+
+                # Guard against a common Step3 partial-build state:
+                # sparse model has many images, but database contains only a few (or only v1/v2 images after Step8 feature_extractor).
+                expected_names = []
+                image_list_path = os.path.join(scene_folder, "colmap", "image-list.txt")
+                sparse_images_txt = os.path.join(scene_folder, "colmap", "sparse", "0", "images.txt")
+                if os.path.exists(image_list_path):
+                    expected_names = read_non_empty_lines(image_list_path)
+                elif os.path.exists(sparse_images_txt):
+                    expected_names = read_colmap_images_txt_image_names(sparse_images_txt)
+                if expected_names:
+                    db_names = get_colmap_db_image_names(db_path)
+                    missing = [n for n in expected_names if n not in db_names]
+                    if missing:
+                        sample = missing[:8]
+                        raise RuntimeError(
+                            "Step 8 input invalid: scene COLMAP sparse model/database mismatch. "
+                            f"Scene db images table is missing {len(missing)}/{len(expected_names)} sparse images. "
+                            f"Example missing: {sample}. "
+                            "Please rerun scene-level Step 3 with --mode overwrite (and stop concurrent scene jobs), "
+                            "then rerun Step 8."
+                        )
 
                 proc_v1, proc_v2 = get_process_flags(seq_path, anchor_files[8], args.mode)
                 min_step8_frames = 3

@@ -620,6 +620,37 @@ def _scene_colmap_db_is_valid(scene_dir: Path) -> bool:
     if counts is None:
         return False
     num_images, num_keypoints, num_descriptors = counts
+
+    # Stronger validation when we can estimate expected scene image count.
+    # A partially built database (e.g. only 1 image extracted) will break Step8 with
+    # "Sparse model image ... not found in database images table".
+    expected = None
+    image_list = scene_dir / "colmap" / "image-list.txt"
+    sparse_images_txt = scene_dir / "colmap" / "sparse" / "0" / "images.txt"
+    try:
+        if image_list.exists():
+            expected = sum(1 for line in image_list.read_text(encoding="utf-8").splitlines() if line.strip() and not line.strip().startswith("#"))
+        elif sparse_images_txt.exists():
+            count = 0
+            for raw in sparse_images_txt.read_text(encoding="utf-8").splitlines():
+                line = raw.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split()
+                if len(parts) < 10:
+                    continue
+                try:
+                    int(parts[0])
+                    int(parts[8])
+                except Exception:
+                    continue
+                count += 1
+            expected = count
+    except Exception:
+        expected = None
+
+    if expected is not None and expected > 0:
+        return (num_images >= expected) and (num_keypoints >= expected) and (num_descriptors >= expected)
     return (num_images > 0) and (num_keypoints > 0) and (num_descriptors > 0)
 
 
