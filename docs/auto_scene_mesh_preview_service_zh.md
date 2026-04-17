@@ -300,7 +300,7 @@ Restart=always
 RestartSec=5
 # 注意：auto_scene_mesh_service.py 内部还会调用 conda 跑 Step1/2，所以这里同时传 --conda
 # 仅场景 mesh（Step0-2）：
-ExecStart=$CONDA_EXE run -n embodmocap python tools/auto_scene_mesh_service.py --data_root $DATA_ROOT --config config_fast.yaml --xlsx_out seq_info_all.xlsx --auto_import_scene_zips --ensure_seq0 --auto_extract_seq_zips --poll_interval 30 --conda $CONDA_EXE
+ExecStart=$CONDA_EXE run -n embodmocap python tools/auto_scene_mesh_service.py --data_root $DATA_ROOT --config config_fast.yaml --xlsx_out seq_info_all.xlsx --auto_import_scene_zips --ensure_seq0 --auto_extract_seq_zips --poll_interval 30 --conda $CONDA_EXE --lock_dir _locks --log_dir _logs/auto_scene_mesh_service
 # 全流程（Spectacular Rec 命名上传 + human Step0-15）替换为：
 # ExecStart=$CONDA_EXE run -n embodmocap python tools/auto_spectacular_rec_service.py --data_root $DATA_ROOT --incoming _incoming --config config_fast.yaml --conda $CONDA_EXE --env_main embodmocap --env_sai embodmocap_sai150 --mode skip --poll_interval 30
 #
@@ -386,7 +386,7 @@ Type=simple
 WorkingDirectory=$EMBOD_DIR
 Restart=always
 RestartSec=5
-ExecStart=$CONDA_EXE run -n embodmocap python tools/auto_scene_mesh_service.py --data_root $DATA_ROOT --config config_fast.yaml --xlsx_out seq_info_all.xlsx --auto_import_scene_zips --ensure_seq0 --auto_extract_seq_zips --poll_interval 30 --conda $CONDA_EXE
+ExecStart=$CONDA_EXE run -n embodmocap python tools/auto_scene_mesh_service.py --data_root $DATA_ROOT --config config_fast.yaml --xlsx_out seq_info_all.xlsx --auto_import_scene_zips --ensure_seq0 --auto_extract_seq_zips --poll_interval 30 --conda $CONDA_EXE --lock_dir _locks --log_dir _logs/auto_scene_mesh_service
 
 [Install]
 WantedBy=default.target
@@ -459,7 +459,7 @@ RestartSec=5
 # 如果系统找不到 conda，把 conda 改成绝对路径，例如：
 # ExecStart=%h/miniconda3/bin/conda run -n embodmocap python tools/auto_scene_mesh_service.py ...
 # 注意：auto_scene_mesh_service.py 内部还会调用 conda 跑 Step1/2，所以建议同时传 --conda（同一个绝对路径）
-ExecStart=conda run -n embodmocap python tools/auto_scene_mesh_service.py --data_root ../datasets/my_capture --config config_fast.yaml --xlsx_out seq_info_all.xlsx --auto_import_scene_zips --ensure_seq0 --auto_extract_seq_zips --poll_interval 30 --conda conda
+ExecStart=conda run -n embodmocap python tools/auto_scene_mesh_service.py --data_root ../datasets/my_capture --config config_fast.yaml --xlsx_out seq_info_all.xlsx --auto_import_scene_zips --ensure_seq0 --auto_extract_seq_zips --poll_interval 30 --conda conda --lock_dir _locks --log_dir _logs/auto_scene_mesh_service
 # 全流程（Spectacular Rec 命名上传 + human Step0-15）替换为：
 # ExecStart=conda run -n embodmocap python tools/auto_spectacular_rec_service.py --data_root ../datasets/my_capture --incoming _incoming --config config_fast.yaml --conda conda --env_main embodmocap --env_sai embodmocap_sai150 --mode skip --poll_interval 30
 
