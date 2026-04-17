@@ -775,8 +775,8 @@ def main() -> None:
         )
         gui_human_mesh_level = server.gui.add_dropdown(
             "SMPL Mesh Level",
-            options=[0, 1, 2],
-            initial_value=int(args.human_mesh_level),
+            options=["0", "1", "2"],
+            initial_value=str(int(args.human_mesh_level)),
         )
 
         gui_human_show_smpl = server.gui.add_checkbox("Show SMPL", True)
