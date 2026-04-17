@@ -571,3 +571,10 @@ http://<你的公网IP>:8080
 
 3) **systemd 报错：`Failed at step EXEC spawning conda` / `status=203/EXEC`**  
    这是因为 `systemd --user` 默认不加载你的 shell 启动脚本，导致 `conda` 不在 PATH。解决方式：把 service 里的 `ExecStart=conda ...` 改成 `ExecStart=/abs/path/to/conda ...`，并且（对自动化服务）同时传 `--conda /abs/path/to/conda`。推荐直接用上面的「4.0 一键生成并启动」脚本。
+
+4) **Viser 页面加载不出来 / 空白，浏览器控制台报 `Cannot use 'in' operator to search for 'value' in 0`**  
+   这是 Viser 前端在解析 dropdown/combobox 选项时遇到“数字选项”（例如 `[0, 1, 2]`）会崩溃的兼容性问题。  
+   解决方式：
+   - 更新仓库到最新版本（`tools/preview_scene_meshes_viser.py` 已将数字选项改为字符串 `"0"/"1"/"2"`）并重启 `embodmocap-viser.service`；
+   - 或临时手工把 `SMPL Mesh Level` 的 options 从数字改成字符串（然后重启 viewer）；
+   - 若仍异常，建议先清浏览器缓存/强制刷新（避免旧的 `assets/*.js` 缓存导致前端代码不一致）。
