@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REAL_COLMAP="${REAL_COLMAP_BIN:-$(PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin command -v colmap)}"
+
+if [ $# -eq 0 ]; then
+    exec "$REAL_COLMAP"
+fi
+
+subcmd="$1"
+shift
+
+case "$subcmd" in
+    feature_extractor)
+        exec "$REAL_COLMAP" "$subcmd" "$@" --SiftExtraction.use_gpu 0
+        ;;
+    sequential_matcher|vocab_tree_matcher|exhaustive_matcher)
+        exec "$REAL_COLMAP" "$subcmd" "$@" --SiftMatching.use_gpu 0
+        ;;
+    *)
+        exec "$REAL_COLMAP" "$subcmd" "$@"
+        ;;
+esac

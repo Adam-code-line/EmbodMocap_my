@@ -16,6 +16,84 @@ from embod_mocap.vggt.vggt.utils.visual_track import visualize_tracks_on_images
 import matplotlib.cm as cm
 
 
+def resolve_vggt_min_valid_ratio():
+    raw_value = os.environ.get("EMBOD_VGGT_MIN_VALID_RATIO", "1.0").strip()
+    try:
+        ratio = float(raw_value)
+    except ValueError as exc:
+        raise ValueError(
+            "Invalid EMBOD_VGGT_MIN_VALID_RATIO="
+            f"{raw_value!r}. Expected a float in [0, 1]."
+        ) from exc
+    if not (0.0 < ratio <= 1.0):
+        raise ValueError(
+            "Invalid EMBOD_VGGT_MIN_VALID_RATIO="
+            f"{raw_value!r}. Expected a float in (0, 1]."
+        )
+    return ratio
+
+
+def resolve_vggt_query_multiplier():
+    raw_value = os.environ.get("EMBOD_VGGT_QUERY_MULTIPLIER", "10").strip()
+    try:
+        multiplier = int(raw_value)
+    except ValueError as exc:
+        raise ValueError(
+            "Invalid EMBOD_VGGT_QUERY_MULTIPLIER="
+            f"{raw_value!r}. Expected a positive integer."
+        ) from exc
+    if multiplier <= 0:
+        raise ValueError(
+            "Invalid EMBOD_VGGT_QUERY_MULTIPLIER="
+            f"{raw_value!r}. Expected a positive integer."
+        )
+    return multiplier
+
+
+def resolve_vggt_valid_threshold():
+    raw_value = os.environ.get("EMBOD_VGGT_VALID_THRESHOLD", "0.2").strip()
+    try:
+        threshold = float(raw_value)
+    except ValueError as exc:
+        raise ValueError(
+            "Invalid EMBOD_VGGT_VALID_THRESHOLD="
+            f"{raw_value!r}. Expected a float in [0, 1]."
+        ) from exc
+    if not (0.0 <= threshold <= 1.0):
+        raise ValueError(
+            "Invalid EMBOD_VGGT_VALID_THRESHOLD="
+            f"{raw_value!r}. Expected a float in [0, 1]."
+        )
+    return threshold
+
+
+def resolve_experiment_seed():
+    raw_value = os.environ.get("EMBOD_EXPERIMENT_SEED")
+    if raw_value is None or raw_value.strip() == "":
+        return None
+    try:
+        return int(raw_value.strip())
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid EMBOD_EXPERIMENT_SEED={raw_value!r}. Expected an integer."
+        ) from exc
+
+
+def pad_tracks_to_num_sample(track_v1, track_v2, num_sample, seed):
+    num_valid = len(track_v1)
+    if num_valid == 0:
+        return track_v1, track_v2
+    if num_valid >= num_sample:
+        return track_v1[:num_sample], track_v2[:num_sample]
+
+    rng = np.random.default_rng(seed)
+    extra_indices = rng.choice(num_valid, size=num_sample - num_valid, replace=True)
+    extra_indices = torch.from_numpy(extra_indices).to(track_v1.device)
+    track_v1 = torch.cat([track_v1, track_v1[extra_indices]], dim=0)
+    track_v2 = torch.cat([track_v2, track_v2[extra_indices]], dim=0)
+    return track_v1, track_v2
+
+
 def preprocess_depth_like_vggt(depth_path, target_width=518):
     """Apply the same preprocessing to depth as vggt does to images"""
     depth_img = cv2.imread(depth_path, cv2.IMREAD_UNCHANGED)
@@ -126,7 +204,8 @@ def vggt_track_pair(image_pair_names, mask_pair_names, depth_pair_names=None, nu
                                                                         intrinsic.squeeze(0))
         indices = torch.nonzero(masks[0], as_tuple=False)
         query_points = indices[:, [1, 0]] 
-        indices = torch.randperm(len(query_points))[:num_sample*10]
+        query_multiplier = resolve_vggt_query_multiplier()
+        indices = torch.randperm(len(query_points))[:num_sample * query_multiplier]
         query_points = query_points[indices]
         track_list, vis_score, conf_score = model.track_head(aggregated_tokens_list, images, ps_idx, query_points=query_points[None])
 
@@ -135,7 +214,7 @@ def vggt_track_pair(image_pair_names, mask_pair_names, depth_pair_names=None, nu
 
     new_w = images.shape[3]
     orig_h, orig_w = cv2.imread(image_names1[0]).shape[:2]
-    threshold = 0.2
+    threshold = resolve_vggt_valid_threshold()
     mask1 = (conf_score[0, 0] > threshold) * (vis_score[0, 0] > threshold)
     mask2 = (conf_score[0, 1] > threshold) * (vis_score[0, 1] > threshold)
     valid_mask = (mask1 & mask2)
@@ -456,6 +535,23 @@ if __name__ == "__main__":
         print(f"keyframes.json not found, fallback to stride={args.stride}: {len(valid_ids)} frames")
 
     num_sample = args.vggt_track_samples
+    min_valid_ratio = resolve_vggt_min_valid_ratio()
+    min_valid_samples = max(1, int(np.ceil(num_sample * min_valid_ratio)))
+    valid_threshold = resolve_vggt_valid_threshold()
+    query_multiplier = resolve_vggt_query_multiplier()
+    experiment_seed = resolve_experiment_seed()
+    if experiment_seed is not None:
+        torch.manual_seed(experiment_seed)
+        np.random.seed(experiment_seed)
+        print(f"VGGT deterministic seed: {experiment_seed}")
+    print(
+        f"VGGT retention: require at least {min_valid_samples}/{num_sample} valid tracks "
+        f"(ratio={min_valid_ratio:.2f})"
+    )
+    print(
+        f"VGGT track filter: valid_threshold={valid_threshold:.2f}, "
+        f"query_multiplier={query_multiplier}"
+    )
     tracks = dict(track_v1=[], track_v2=[], frame_ids=[])
     expand_mask = args.expand_mask
     
@@ -484,10 +580,26 @@ if __name__ == "__main__":
         #         expand_mask = True
         #         print(f"Expand mask for {args.input_folder} for no valid tracks on human surface")
         #         track_v1, track_v2, _ = vggt_track_pair(image_pair_names, mask_pair_names, depth_pair_names, num_sample=num_sample, return_pointcloud=False, expand_mask=expand_mask)
-        if len(track_v1) == num_sample and len(track_v2) == num_sample:
-            tracks['track_v1'].append(track_v1)
-            tracks['track_v2'].append(track_v2)
-            tracks['frame_ids'].append(frame_id)
+        num_valid = min(len(track_v1), len(track_v2))
+        if num_valid < min_valid_samples:
+            print(
+                f"[VGGT] Drop frame {frame_id}: only {num_valid}/{num_sample} "
+                "valid correspondences"
+            )
+            continue
+
+        if len(track_v1) != num_sample or len(track_v2) != num_sample:
+            track_v1, track_v2 = pad_tracks_to_num_sample(
+                track_v1, track_v2, num_sample=num_sample, seed=frame_id
+            )
+            print(
+                f"[VGGT] Keep frame {frame_id} with relaxed retention: "
+                f"{num_valid}/{num_sample} valid correspondences"
+            )
+
+        tracks['track_v1'].append(track_v1)
+        tracks['track_v2'].append(track_v2)
+        tracks['frame_ids'].append(frame_id)
     
     if len(tracks['track_v1']) > 0:
 

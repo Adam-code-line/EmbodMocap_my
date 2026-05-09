@@ -100,6 +100,26 @@ def nearest_frame_id(target_time, frame_timestamps, frame_ids):
     return int(frame_ids[prev_idx])
 
 
+def exact_frame_id(target_time, frame_timestamps, frame_ids):
+    matches = np.where(frame_timestamps == target_time)[0]
+    if matches.size == 0:
+        raise RuntimeError(
+            "Exact timestamp match failed for camera pose time "
+            f"{target_time}. This mirrors the original EmbodMocap behavior."
+        )
+    return int(frame_ids[int(matches[0])])
+
+
+def resolve_timestamp_match_mode():
+    mode = os.environ.get("EMBOD_SMOOTH_TIMESTAMP_MATCH", "nearest").strip().lower()
+    if mode not in {"nearest", "exact"}:
+        raise ValueError(
+            "Invalid EMBOD_SMOOTH_TIMESTAMP_MATCH="
+            f"{mode!r}. Expected 'nearest' or 'exact'."
+        )
+    return mode
+
+
 def extract_frame_id_from_path(file_path):
     match = re.search(r"(\d+)(?=\.[^.]+$)", str(file_path))
     if not match:
@@ -178,8 +198,10 @@ def load_smooth_trajectory(jsonl_file, frame_info):
     if not poses:
         raise RuntimeError(f"No valid camera poses found in {jsonl_file}")
 
+    match_mode = resolve_timestamp_match_mode()
+    matcher = exact_frame_id if match_mode == "exact" else nearest_frame_id
     frame_ids = [
-        nearest_frame_id(ts, frame_info["timestamps"], frame_info["frame_id"])
+        matcher(ts, frame_info["timestamps"], frame_info["frame_id"])
         for ts in timestamps
     ]
 
@@ -252,6 +274,11 @@ def process_view(
         raise RuntimeError(f"No frame records found in {data_jsonl}")
 
     K = load_intrinsics(raw_dir, down_scale)
+    timestamp_match_mode = resolve_timestamp_match_mode()
+    print(
+        f"[smooth_camera] Timestamp match mode for {raw_dir}: "
+        f"{timestamp_match_mode}"
+    )
     smooth_jsonl = os.path.join(raw_dir, "cameras_sai.jsonl")
     if os.path.exists(smooth_jsonl):
         os.remove(smooth_jsonl)

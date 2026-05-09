@@ -15,6 +15,18 @@ from pytorch3d.loss import chamfer_distance
 from embod_mocap.human.utils.mesh_utils import slice_pointcloud_o3d
 
 
+def resolve_experiment_seed():
+    raw_value = os.environ.get("EMBOD_EXPERIMENT_SEED")
+    if raw_value is None or raw_value.strip() == "":
+        return None
+    try:
+        return int(raw_value.strip())
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid EMBOD_EXPERIMENT_SEED={raw_value!r}. Expected an integer."
+        ) from exc
+
+
 def apply_rigid_transform_points(points, R, T, scale=1.0):
     return scale * (points @ R.T) + T
 
@@ -316,6 +328,11 @@ if __name__ == "__main__":
         help="Whether to fix the scale.",
     )
     args = parser.parse_args()
+    experiment_seed = resolve_experiment_seed()
+    if experiment_seed is not None:
+        np.random.seed(experiment_seed)
+        torch.manual_seed(experiment_seed)
+        print(f"[optim_human_cam] Deterministic seed: {experiment_seed}")
     #############################################################
     # load data
     fps = 30

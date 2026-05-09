@@ -214,6 +214,70 @@ if __name__ == "__main__":
     v1_success = not args.proc_v1
     v2_success = not args.proc_v2
 
+    # Keep registration helpers outside the v1/v2 branches so rerunning only one
+    # view (for example proc_v2 after v1 already succeeded) still works.
+    def sample_and_register(view_path, image_names, focal, cx, cy, attempt="uniform"):
+        if len(image_names) > args.colmap_num:
+            if attempt == "uniform":
+                stride = max(1, len(image_names) // args.colmap_num)
+                sampled = image_names[::stride][:args.colmap_num]
+            else:
+                sampled = sorted(random.sample(image_names, args.colmap_num))
+        else:
+            sampled = image_names
+        print(f"Processing {len(sampled)} images ({attempt} sampling, total {len(image_names)})")
+        with open(os.path.join(view_path, "image-list.txt"), "w", encoding="utf-8") as f:
+            for line in sampled:
+                f.write(line + "\n")
+        cmd = f"bash processor/regist_seq.sh {scene_path} {view_path} {focal} {cx} {cy} {PATHS.colmap_vocab_tree_path}"
+        run_cmd(cmd)
+
+        colmap_txt_dir = os.path.join(view_path, "colmap")
+        required_txt = ["cameras.txt", "images.txt", "points3D.txt"]
+        missing = [n for n in required_txt if not os.path.exists(os.path.join(colmap_txt_dir, n))]
+        if missing:
+            raise RuntimeError(
+                f"COLMAP registration did not produce {missing} under {colmap_txt_dir}. "
+                "Likely causes: scene colmap database/sparse model mismatch, too few/low-overlap sliced frames, "
+                "or image_registrator failure in processor/regist_seq.sh."
+            )
+
+    def run_registration(view_path, view_prefix, image_names, num_frames, focal, cx, cy, attempt="uniform"):
+        sample_and_register(view_path, image_names, focal, cx, cy, attempt)
+        cameras_parsed, images_parsed, points3D_parsed = parse_colmap_files(f'{view_path}/colmap')
+        if len(images_parsed) == 0 or len(points3D_parsed) == 0:
+            raise RuntimeError(
+                f"COLMAP parsed empty result for {view_path} ({view_prefix}): "
+                f"images={len(images_parsed)}, points3D={len(points3D_parsed)}"
+            )
+        imgs_dump = dict()
+        for image in images_parsed:
+            im_name = image['image_name']
+            if args.keyframe_mask:
+                imgs_dump[im_name] = image['points']
+            else:
+                mask = cv2.imread(os.path.join(view_path, "masks", im_name.replace(".jpg", ".png")), cv2.IMREAD_UNCHANGED) > 127
+                point_mask = check_points_in_mask(image['points'][:, :2], mask)
+                valid = np.where(point_mask == False)[0]
+                imgs_dump[im_name] = image['points'][valid]
+        R_out, T_out, fnames_out = parse_camera(view_path)
+
+        frame_idx = []
+        fname_to_colmap_idx = {}
+        for colmap_idx, fname in enumerate(fnames_out):
+            fname_to_colmap_idx[fname] = colmap_idx
+
+        for i in range(num_frames):
+            fname = f"{view_prefix}_{i:04d}.jpg"
+            if fname in fname_to_colmap_idx:
+                frame_idx.append(i)
+
+        reorder_indices = [fname_to_colmap_idx[f"{view_prefix}_{fid:04d}.jpg"] for fid in frame_idx]
+        R_out = R_out[reorder_indices]
+        T_out = T_out[reorder_indices]
+
+        return R_out, T_out, fnames_out, frame_idx, imgs_dump, points3D_parsed
+
     if args.proc_v1:
         v1_path = os.path.join(args.input_folder, "v1")
         image_names1 = sorted(os.listdir(os.path.join(v1_path, "images")))
@@ -237,77 +301,15 @@ if __name__ == "__main__":
         images_dump = dict()
         points3D_dump = dict()
 
-        def sample_and_register(view_path, image_names, colmap_num, scene_path, focal, cx, cy, attempt="uniform"):
-            if len(image_names) > colmap_num:
-                if attempt == "uniform":
-                    stride = max(1, len(image_names) // colmap_num)
-                    sampled = image_names[::stride][:colmap_num]
-                else:
-                    sampled = sorted(random.sample(image_names, colmap_num))
-            else:
-                sampled = image_names
-            print(f"Processing {len(sampled)} images ({attempt} sampling, total {len(image_names)})")
-            with open(os.path.join(view_path, "image-list.txt"), "w", encoding="utf-8") as f:
-                for line in sampled:
-                    f.write(line + "\n")
-            cmd = f"bash processor/regist_seq.sh {scene_path} {view_path} {focal} {cx} {cy} {PATHS.colmap_vocab_tree_path}"
-            run_cmd(cmd)
-
-            colmap_txt_dir = os.path.join(view_path, "colmap")
-            required_txt = ["cameras.txt", "images.txt", "points3D.txt"]
-            missing = [n for n in required_txt if not os.path.exists(os.path.join(colmap_txt_dir, n))]
-            if missing:
-                raise RuntimeError(
-                    f"COLMAP registration did not produce {missing} under {colmap_txt_dir}. "
-                    "Likely causes: scene colmap database/sparse model mismatch, too few/low-overlap sliced frames, "
-                    "or image_registrator failure in processor/regist_seq.sh."
-                )
-
-        def run_registration(view_path, view_prefix, image_names, num_frames, attempt="uniform"):
-            sample_and_register(view_path, image_names, args.colmap_num, scene_path, focal, cx, cy, attempt)
-            cameras_parsed, images_parsed, points3D_parsed = parse_colmap_files(f'{view_path}/colmap')
-            if len(images_parsed) == 0 or len(points3D_parsed) == 0:
-                raise RuntimeError(
-                    f"COLMAP parsed empty result for {view_path} ({view_prefix}): "
-                    f"images={len(images_parsed)}, points3D={len(points3D_parsed)}"
-                )
-            imgs_dump = dict()
-            for image in images_parsed:
-                im_name = image['image_name']
-                if args.keyframe_mask:
-                    imgs_dump[im_name] = image['points']
-                else:
-                    mask = cv2.imread(os.path.join(view_path, "masks", im_name.replace(".jpg", ".png")), cv2.IMREAD_UNCHANGED) > 127
-                    point_mask = check_points_in_mask(image['points'][:, :2], mask)
-                    valid = np.where(point_mask==False)[0]
-                    imgs_dump[im_name] = image['points'][valid]
-            R_out, T_out, fnames_out = parse_camera(view_path)
-            
-            frame_idx = []
-            fname_to_colmap_idx = {}
-            for colmap_idx, fname in enumerate(fnames_out):
-                fname_to_colmap_idx[fname] = colmap_idx
-            
-            for i in range(num_frames):
-                fname = f"{view_prefix}_{i:04d}.jpg"
-                if fname in fname_to_colmap_idx:
-                    frame_idx.append(i)
-            
-            reorder_indices = [fname_to_colmap_idx[f"{view_prefix}_{fid:04d}.jpg"] for fid in frame_idx]
-            R_out = R_out[reorder_indices]
-            T_out = T_out[reorder_indices]
-            
-            return R_out, T_out, fnames_out, frame_idx, imgs_dump, points3D_parsed
-
         try:
             R1, T1, fnames1, source_frame_idx, images_dump, points3D_result = run_registration(
-                v1_path, "v1", image_names1, num_frames1, "uniform")
+                v1_path, "v1", image_names1, num_frames1, focal, cx, cy, "uniform")
 
             valid_ratio = len(source_frame_idx) / args.colmap_num if len(image_names1) > args.colmap_num else len(source_frame_idx) / len(image_names1)
             if valid_ratio < args.min_valid_ratio and len(image_names1) > args.colmap_num:
                 print(f"v1: valid ratio {valid_ratio:.2f} < {args.min_valid_ratio}, retrying with random sampling...")
                 R1, T1, fnames1, source_frame_idx, images_dump, points3D_result = run_registration(
-                    v1_path, "v1", image_names1, num_frames1, "random")
+                    v1_path, "v1", image_names1, num_frames1, focal, cx, cy, "random")
                 print(f"v1 retry: {len(source_frame_idx)} valid frames")
 
             points3D_dump = dict()
@@ -358,13 +360,13 @@ if __name__ == "__main__":
 
         try:
             R2, T2, fnames2, source_frame_idx, images_dump, points3D_result = run_registration(
-                v2_path, "v2", image_names2, num_frames2, "uniform")
+                v2_path, "v2", image_names2, num_frames2, focal, cx, cy, "uniform")
 
             valid_ratio = len(source_frame_idx) / args.colmap_num if len(image_names2) > args.colmap_num else len(source_frame_idx) / len(image_names2)
             if valid_ratio < args.min_valid_ratio and len(image_names2) > args.colmap_num:
                 print(f"v2: valid ratio {valid_ratio:.2f} < {args.min_valid_ratio}, retrying with random sampling...")
                 R2, T2, fnames2, source_frame_idx, images_dump, points3D_result = run_registration(
-                    v2_path, "v2", image_names2, num_frames2, "random")
+                    v2_path, "v2", image_names2, num_frames2, focal, cx, cy, "random")
                 print(f"v2 retry: {len(source_frame_idx)} valid frames")
 
             points3D_dump = dict()

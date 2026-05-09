@@ -35,19 +35,22 @@ colmap feature_extractor \
          --image_list_path "$view_path/image-list.txt" \
          --ImageReader.single_camera 1 \
          --ImageReader.camera_model SIMPLE_PINHOLE \
-         --ImageReader.camera_params "${focal},${cx},${cy}"
+         --ImageReader.camera_params "${focal},${cx},${cy}" \
+         --SiftExtraction.use_gpu 0
  
 
 #  colmap exhaustive_matcher --database_path $view_path/colmap/database.db
  colmap sequential_matcher \
      --database_path "$view_path/colmap/database.db" \
      --SequentialMatching.overlap 10 \
-     --SequentialMatching.loop_detection 0
+     --SequentialMatching.loop_detection 0 \
+     --SiftMatching.use_gpu 0
 
  colmap vocab_tree_matcher \
      --database_path "$view_path/colmap/database.db" \
      --VocabTreeMatching.vocab_tree_path "$vocab_tree_path" \
-     --VocabTreeMatching.match_list_path "$view_path/image-list.txt"
+     --VocabTreeMatching.match_list_path "$view_path/image-list.txt" \
+     --SiftMatching.use_gpu 0
 
 #  colmap vocab_tree_matcher \
 #      --database_path $view_path/colmap/database.db \

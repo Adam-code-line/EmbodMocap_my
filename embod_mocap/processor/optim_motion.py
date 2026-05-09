@@ -24,6 +24,30 @@ from embod_mocap.human.utils.mesh_utils import filter_and_sample_points
 from t3drender.transforms import aa_to_rotmat, rotmat_to_aa
 
 
+def resolve_optim_init_view():
+    value = os.environ.get("EMBOD_OPTIM_INIT_VIEW", "v1").strip().lower()
+    if value not in {"v1", "v2"}:
+        raise ValueError(
+            f"Invalid EMBOD_OPTIM_INIT_VIEW={value!r}. Expected 'v1' or 'v2'."
+        )
+    return value
+
+
+def resolve_kp2d_conf_threshold():
+    raw_value = os.environ.get("EMBOD_KP2D_CONF_THRESHOLD", "0.6").strip()
+    try:
+        threshold = float(raw_value)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid EMBOD_KP2D_CONF_THRESHOLD={raw_value!r}. Expected a float in [0, 1]."
+        ) from exc
+    if not (0.0 <= threshold <= 1.0):
+        raise ValueError(
+            f"Invalid EMBOD_KP2D_CONF_THRESHOLD={raw_value!r}. Expected a float in [0, 1]."
+        )
+    return threshold
+
+
 def detect_local_stationary_joints(kp3d, 
                                    velocity_threshold=0.1,
                                    min_segment_length=5):
@@ -669,8 +693,10 @@ if __name__ == "__main__":
 
     kp2d1_conf = smpl_params1['keypoints2d'][..., 2:3]
     kp2d2_conf = smpl_params2['keypoints2d'][..., 2:3]  
-    kp2d1_conf = (kp2d1_conf > 0.6) * kp2d1_conf
-    kp2d2_conf = (kp2d2_conf > 0.6) * kp2d2_conf
+    kp2d_conf_threshold = resolve_kp2d_conf_threshold()
+    print(f"[optim_motion] kp2d confidence threshold: {kp2d_conf_threshold}")
+    kp2d1_conf = (kp2d1_conf > kp2d_conf_threshold) * kp2d1_conf
+    kp2d2_conf = (kp2d2_conf > kp2d_conf_threshold) * kp2d2_conf
     if args.optim_kp3d:
         kp3d = kp3d_smoothing(kp3d, get_coco_bone_skeleton(), kp2d_1, kp2d1_conf, K1, R1_w2c, T1_w2c, kp2d_2, kp2d2_conf, K2, R2_w2c, T2_w2c, h, w, num_iters=100, lr=1e-2).cpu().numpy()
     kp3d_conf = (kp2d1_conf * kp2d2_conf)
@@ -687,7 +713,10 @@ if __name__ == "__main__":
             create_transl=False).to(device)
     
     smpl_params1 = dict(smpl_params1)
-    smpl_params_init = copy.deepcopy(smpl_params1)
+    smpl_params2 = dict(smpl_params2)
+    init_view = resolve_optim_init_view()
+    smpl_params_init = copy.deepcopy(smpl_params1 if init_view == "v1" else smpl_params2)
+    print(f"[optim_motion] Initialization view: {init_view}")
 
     pred_cam = smpl_params_init['pred_cam'].reshape(-1, 3)
 
